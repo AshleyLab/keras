@@ -192,6 +192,86 @@ class SimpleDeepRNN(Recurrent):
                 "return_sequences": self.return_sequences}
 
 
+
+
+class Counter(Recurrent):
+    '''
+        My attempt at constructing counter units
+    '''
+    def __init__(self, input_dim, output_dim=128,
+                 init='glorot_uniform', inner_init='orthogonal',
+                 inner_activation='hard_sigmoid', #huh...hard_sigmoid is faster than sigmoid but do I want it?
+                 weights=None, truncate_gradient=-1, return_sequences=False):
+
+        super(Counter, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.truncate_gradient = truncate_gradient
+        self.return_sequences = return_sequences
+
+        self.init = initializations.get(init)
+        self.inner_init = initializations.get(inner_init)
+        self.inner_activation = activations.get(inner_activation)
+        self.input = T.tensor3()
+
+        #interpret z as the "keep counting"
+        self.W_z = self.init((self.input_dim, self.output_dim))
+        self.U_z = self.inner_init((self.output_dim, self.output_dim))
+        self.b_z = shared_zeros((self.output_dim))
+
+        #interpret r as the stopwatch reset gate
+        self.W_r = self.init((self.input_dim, self.output_dim))
+        self.U_r = self.inner_init((self.output_dim, self.output_dim))
+        self.b_r = shared_zeros((self.output_dim))
+
+        self.params = [
+            self.W_z, self.U_z, self.b_z,
+            self.W_r, self.U_r, self.b_r,
+        ]
+
+        if weights is not None: #what does this do?? What weights??
+            self.set_weights(weights)
+
+    def _step(self,
+              xz_t, xr_t, mask_tm1,
+              h_tm1,
+              u_z, u_r):
+        h_mask_tm1 = mask_tm1 * h_tm1 #for dropout?
+        z = self.inner_activation(xz_t + T.dot(h_mask_tm1, u_z))
+        r = self.inner_activation(xr_t + T.dot(h_mask_tm1, u_r))
+
+        h_t = z*1 + h_tm1*(1-r); #using h_tm1 and not h_mask_tm1 because otherwise acts like a "reset" flip...(assuming masking is for dropout...)
+        return h_t
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+        padded_mask = self.get_padded_shuffled_mask(train, X, pad=1) #for dropout?
+        X = X.dimshuffle((1, 0, 2))
+
+        x_z = T.dot(X, self.W_z) + self.b_z
+        x_r = T.dot(X, self.W_r) + self.b_r
+        outputs, updates = theano.scan(
+            self._step,
+            sequences=[x_z, x_r, padded_mask],
+            outputs_info=T.unbroadcast(alloc_zeros_matrix(X.shape[1], self.output_dim), 1),
+            non_sequences=[self.U_z, self.U_r],
+            truncate_gradient=self.truncate_gradient)
+
+        if self.return_sequences:
+            return outputs.dimshuffle((1, 0, 2))
+        return outputs[-1]
+
+    def get_config(self):
+        return {"name": self.__class__.__name__,
+                "input_dim": self.input_dim,
+                "output_dim": self.output_dim,
+                "init": self.init.__name__,
+                "inner_init": self.inner_init.__name__,
+                "activation": self.activation.__name__,
+                "inner_activation": self.inner_activation.__name__,
+                "truncate_gradient": self.truncate_gradient,
+                "return_sequences": self.return_sequences}
+
 class GRU(Recurrent):
     '''
         Gated Recurrent Unit - Cho et al. 2014
