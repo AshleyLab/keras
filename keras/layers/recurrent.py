@@ -197,13 +197,18 @@ class SimpleDeepRNN(Recurrent):
 class Counter(Recurrent):
     '''
         My attempt at constructing counter units
+
+        incrementAmount is the amount to increment by when the start gate is active.
+        This needs to be tuned because very large activations can lead to
+        exploding losses.
     '''
     def __init__(self, input_dim, output_dim=128,
                  init='glorot_uniform', inner_init='orthogonal',
                  inner_activation='hard_sigmoid', #huh...hard_sigmoid is faster than sigmoid but do I want it?
-                 weights=None, truncate_gradient=-1, return_sequences=False):
+                 weights=None, truncate_gradient=-1, return_sequences=False, incrementAmount=0.2):
 
         super(Counter, self).__init__()
+        self.incrementAmount = incrementAmount
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.truncate_gradient = truncate_gradient
@@ -240,7 +245,7 @@ class Counter(Recurrent):
         z = self.inner_activation(xz_t + T.dot(h_mask_tm1, u_z))
         r = self.inner_activation(xr_t + T.dot(h_mask_tm1, u_r))
 
-        h_t = z*1 + h_tm1*(1-r); #using h_tm1 and not h_mask_tm1 because otherwise acts like a "reset" flip...(assuming masking is for dropout...)
+        h_t = z*self.incrementAmount + h_tm1*(1-r); #using h_tm1 and not h_mask_tm1 because otherwise acts like a "reset" flip...(assuming masking is for dropout...)
         return h_t
 
     def get_output(self, train=False):
