@@ -358,7 +358,7 @@ class CounterGRU(Recurrent):
         
         z_counter = self.inner_activation(xz_t_counter + T.dot(h_mask_tm1, u_z_counter))
         r_counter = self.inner_activation(xr_t_counter + T.dot(h_mask_tm1, u_r_counter))
-        h_mask_tm1 = h_mask_tm1+T.zeros_like(u_z_gru);#like a die command. Crash at right spot.
+        #h_mask_tm1 = h_mask_tm1+T.zeros_like(u_z_gru);#like a die command. Crash at right spot.
 
         h_tm1_counter = h_tm1[:,self.num_gru_outputs:];
         h_t_counter = z_counter*self.incrementAmount  + h_tm1_counter*(1-r_counter); #using h_tm1 and not h_mask_tm1 because otherwise acts like a "reset" flip...(assuming masking is for dropout...)
