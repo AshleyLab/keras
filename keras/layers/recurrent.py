@@ -198,17 +198,16 @@ class Counter(Recurrent):
     '''
         My attempt at constructing counter units
 
-        incrementAmount is the amount to increment by when the start gate is active.
-        This needs to be tuned because very large activations can lead to
-        exploding losses.
+        incrementAmount controls how much the counter unit is
+        incremented by when the start gate is active. incrementAmountInit
+        is the val to init this too...
     '''
     def __init__(self, input_dim, output_dim=128,
                  init='glorot_uniform', inner_init='orthogonal',
                  inner_activation='hard_sigmoid', #huh...hard_sigmoid is faster than sigmoid but do I want it?
-                 weights=None, truncate_gradient=-1, return_sequences=False, incrementAmount=0.2):
+                 weights=None, truncate_gradient=-1, return_sequences=False, incrementAmountInit=0.2, learnIncrementAmount=False):
 
         super(Counter, self).__init__()
-        self.incrementAmount = incrementAmount
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.truncate_gradient = truncate_gradient
@@ -229,10 +228,16 @@ class Counter(Recurrent):
         self.U_r = self.inner_init((self.output_dim, self.output_dim))
         self.b_r = shared_zeros((self.output_dim))
 
+        #incrementAmount is the amount to increment by when the start gate is active
+        self.incrementAmount = shared_scalar(val=incrementAmountInit); 
+        self.learnIncrementAmount = learnIncrementAmount;        
+
         self.params = [
             self.W_z, self.U_z, self.b_z,
             self.W_r, self.U_r, self.b_r,
         ]
+        if (self.learnIncrementAmount):
+            self.params.append(self.incrementAmount);
 
         if weights is not None: #what does this do?? What weights??
             self.set_weights(weights)
@@ -260,6 +265,125 @@ class Counter(Recurrent):
             sequences=[x_z, x_r, padded_mask],
             outputs_info=T.unbroadcast(alloc_zeros_matrix(X.shape[1], self.output_dim), 1),
             non_sequences=[self.U_z, self.U_r],
+            truncate_gradient=self.truncate_gradient)
+
+        if self.return_sequences:
+            return outputs.dimshuffle((1, 0, 2))
+        return outputs[-1]
+
+    def get_config(self):
+        return {"name": self.__class__.__name__,
+                "input_dim": self.input_dim,
+                "output_dim": self.output_dim,
+                "init": self.init.__name__,
+                "inner_init": self.inner_init.__name__,
+                "activation": self.activation.__name__,
+                "inner_activation": self.inner_activation.__name__,
+                "truncate_gradient": self.truncate_gradient,
+                "return_sequences": self.return_sequences}
+
+class CounterGRU(Recurrent):
+    '''
+        I want this to contain a mix of Counter units and the GRU units
+    '''
+    def __init__(self, input_dim, num_gru_outputs, num_counter_outputs,
+                 init='glorot_uniform', inner_init='orthogonal',
+                 activation='sigmoid', inner_activation='hard_sigmoid',
+                 weights=None, truncate_gradient=-1, return_sequences=False, incrementAmount=0.2):
+
+        super(CounterGRU, self).__init__()
+        self.input_dim = input_dim
+        self.num_gru_outputs = num_gru_outputs
+        self.num_counter_outputs = num_counter_outputs
+        self.output_dim = (num_gru_outputs + num_counter_outputs)
+        self.truncate_gradient = truncate_gradient
+        self.return_sequences = return_sequences
+
+        self.init = initializations.get(init)
+        self.inner_init = initializations.get(inner_init)
+        self.activation = activations.get(activation)
+        self.inner_activation = activations.get(inner_activation)
+        self.input = T.tensor3()
+
+        self.W_z_gru = self.init((self.input_dim, self.num_gru_outputs))
+        self.U_z_gru = self.inner_init((self.output_dim, self.num_gru_outputs))
+        self.b_z_gru = shared_zeros((self.num_gru_outputs))
+
+        #The "reset gate" for a GRU is "how much of previous hidden state is exposed to
+        #self.U_h_gru...so that is why the reset has to apply to gruAndCounter
+        self.W_r_gruAndCounter = self.init((self.input_dim, self.output_dim))
+        self.U_r_gruAndCounter = self.inner_init((self.output_dim, self.output_dim))
+        self.b_r_gruAndCounter = shared_zeros((self.output_dim))
+
+        self.W_h_gru = self.init((self.input_dim, self.num_gru_outputs))
+        self.U_h_gru = self.inner_init((self.output_dim, self.num_gru_outputs))
+        self.b_h_gru = shared_zeros((self.num_gru_outputs))
+
+        self.W_z_counter = self.init((self.input_dim, self.num_counter_outputs))
+        self.U_z_counter = self.inner_init((self.output_dim, self.num_counter_outputs))
+        self.b_z_counter = shared_zeros((self.num_counter_outputs))
+
+        self.W_r_counter = self.init((self.input_dim, self.num_counter_outputs))
+        self.U_r_counter = self.inner_init((self.output_dim, self.num_counter_outputs))
+        self.b_r_counter = shared_zeros((self.num_counter_outputs))
+
+        self.incrementAmount = incrementAmount;
+
+        self.params = [
+            self.W_z_gru, self.U_z_gru, self.b_z_gru,
+            self.W_r_gruAndCounter, self.U_r_gruAndCounter, self.b_r_gruAndCounter,
+            self.W_h_gru, self.U_h_gru, self.b_h_gru,
+            self.W_z_counter, self.U_z_counter, self.b_z_counter,
+            self.W_r_counter, self.U_r_counter, self.b_r_counter,
+        ]
+
+        if weights is not None:
+            self.set_weights(weights)
+
+    def _step(self,
+              xz_t_gru, xr_t_gruAndCounter, xh_t_gru, xz_t_counter, xr_t_counter, mask_tm1,
+              h_tm1,
+              u_z_gru, u_r_gruAndCounter, u_h_gru, u_z_counter, u_r_counter):
+        h_mask_tm1 = mask_tm1 * h_tm1
+
+        #notice that the z/r gates of the gru/counter compute their
+        #activation using BOTH the gru and counter units of the
+        #hidden state
+        z_gru = self.inner_activation(xz_t_gru + T.dot(h_mask_tm1, u_z_gru))
+        r_gruAndCounter = self.inner_activation(xr_t_gruAndCounter + T.dot(h_mask_tm1, u_r_gruAndCounter))
+        h_mask_tm1_gru = h_mask_tm1[:,:self.num_gru_outputs]; 
+        hh_t_gru = self.activation((xh_t_gru) + T.dot(r_gruAndCounter * h_mask_tm1, u_h_gru))
+        h_t_gru = z_gru * h_mask_tm1_gru + (1 - z_gru) * hh_t_gru
+
+        
+        z_counter = self.inner_activation(xz_t_counter + T.dot(h_mask_tm1, u_z_counter))
+        r_counter = self.inner_activation(xr_t_counter + T.dot(h_mask_tm1, u_r_counter))
+        h_mask_tm1 = h_mask_tm1+T.zeros_like(u_z_gru);#like a die command. Crash at right spot.
+
+        h_tm1_counter = h_tm1[:,self.num_gru_outputs:];
+        h_t_counter = z_counter*self.incrementAmount  + h_tm1_counter*(1-r_counter); #using h_tm1 and not h_mask_tm1 because otherwise acts like a "reset" flip...(assuming masking is for dropout...)
+        #toReturn = T.zeros_like(h_tm1);
+        #toReturn[:,:self.num_gru_outputs] = h_t_gru;
+        #toReturn[:,self.num_gru_outputs:] = h_t_counter;
+        #return toReturn;
+        return T.concatenate([h_t_gru, h_t_counter],axis=1);
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+        padded_mask = self.get_padded_shuffled_mask(train, X, pad=1)
+        X = X.dimshuffle((1, 0, 2)) #batch axis first
+
+        x_z_gru = T.dot(X, self.W_z_gru) + self.b_z_gru
+        x_r_gru = T.dot(X, self.W_r_gruAndCounter) + self.b_r_gruAndCounter
+        x_h_gru = T.dot(X, self.W_h_gru) + self.b_h_gru
+        
+        x_z_counter = T.dot(X, self.W_z_counter) + self.b_z_counter
+        x_r_counter = T.dot(X, self.W_r_counter) + self.b_r_counter
+        outputs, updates = theano.scan(
+            self._step,
+            sequences=[x_z_gru, x_r_gru, x_h_gru, x_z_counter, x_r_counter, padded_mask],
+            outputs_info=T.unbroadcast(alloc_zeros_matrix(X.shape[1], self.output_dim), 1),
+            non_sequences=[self.U_z_gru, self.U_r_gruAndCounter, self.U_h_gru, self.U_z_counter, self.U_r_counter],
             truncate_gradient=self.truncate_gradient)
 
         if self.return_sequences:
