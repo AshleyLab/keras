@@ -5,7 +5,7 @@ import theano.tensor as T
 import numpy as np
 
 from .. import activations, initializations
-from ..utils.theano_utils import shared_scalar, shared_zeros, alloc_zeros_matrix
+from ..utils.theano_utils import shared_scalar, shared_zeros, shared_ones, alloc_zeros_matrix
 from ..layers.core import Layer, MaskedLayer
 from six.moves import range
 
@@ -282,14 +282,186 @@ class Counter(Recurrent):
                 "truncate_gradient": self.truncate_gradient,
                 "return_sequences": self.return_sequences}
 
+class EventSpacingCounter_Thresholds(Recurrent):
+    '''
+        I am going to engineer these to specifically detect the spacing between two events...
+        This unit here is super minimal
+    '''
+    def __init__(self, input_dim, output_dim,
+                 init='glorot_uniform', inner_init='orthogonal',
+                 startStopActivation='tanh', inner_activation='tanh', incrementAmount=0.2,
+                 weights=None, truncate_gradient=-1, return_sequences=False):
+
+        super(EventSpacingCounter_Thresholds, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim #countOn, countHiddenState
+        self.truncate_gradient = truncate_gradient
+        self.return_sequences = return_sequences
+        self.incrementAmount = incrementAmount;
+
+        self.init = initializations.get(init)
+        self.inner_init = initializations.get(inner_init)
+        self.startStopActivation = activations.get(startStopActivation)
+        self.inner_activation = activations.get(inner_activation)
+        self.input = T.tensor3()
+
+        self.W_startEvent = self.init((self.input_dim, self.output_dim));
+        self.b_startEvent = shared_zeros((self.output_dim));
+
+        self.W_stopEvent = self.init((self.input_dim, self.output_dim));
+        self.b_stopEvent = shared_zeros((self.output_dim));
+
+        self.thresholds1 = shared_zeros((self.output_dim));
+        self.thresholds1Scale = shared_ones((self.output_dim));   
+
+        self.params = [
+            self.W_startEvent, self.b_startEvent
+            , self.W_stopEvent, self.b_stopEvent
+            , self.thresholds1, self.thresholds1Scale
+        ]
+
+        if weights is not None:
+            self.set_weights(weights)
+
+    def _step(self,
+              startEvent_t, stopEvent_t, mask_tm1,
+              h_counterStates_tm1, h_counterValues_tm1, h_counterValTestsPassed_tm1
+              ):
+        #I am going to ignore the mask...I don't
+        #see this playing well with dropout at all...
+        #h_mask_tm1 = mask_tm1 * h_tm1
+        
+        h_counterStates = self.inner_activation(5*(h_counterStates_tm1 + 2*((1-h_counterStates_tm1)*startEvent_t - (h_counterValues_tm1)*stopEvent_t)));
+        h_counterValues = h_counterStates*self.incrementAmount + h_counterValues_tm1;
+       
+        #ugh are we layering too many tanh's here?
+        h_counterValTestsPassed = self.inner_activation(self.thresholds1Scale*(h_counterValues-self.thresholds1));
+
+        return h_counterStates, h_counterValues, h_counterValTestsPassed;
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+        padded_mask = self.get_padded_shuffled_mask(train, X, pad=1)
+        X = X.dimshuffle((1, 0, 2)) #batch axis first
+
+        startEvent = self.startStopActivation(T.dot(X, self.W_startEvent) + self.b_startEvent)
+        stopEvent = self.startStopActivation(T.dot(X, self.W_stopEvent) + self.b_stopEvent)
+        [counterStates,counterValues,outputs], updates = theano.scan(
+            self._step,
+            sequences=[startEvent, stopEvent, padded_mask],
+            outputs_info=[T.unbroadcast(alloc_zeros_matrix(X.shape[1], self.output_dim), 1),
+                          T.unbroadcast(alloc_zeros_matrix(X.shape[1], self.output_dim), 1),
+                          T.unbroadcast(alloc_zeros_matrix(X.shape[1], self.output_dim), 1)],
+            non_sequences=[],
+            truncate_gradient=self.truncate_gradient)
+
+        if self.return_sequences:
+            return outputs.dimshuffle((1, 0, 2))
+        return outputs[-1]
+
+    def get_config(self):
+        return {"name": self.__class__.__name__,
+                "input_dim": self.input_dim,
+                "output_dim": self.output_dim,
+                "init": self.init.__name__,
+                "inner_init": self.inner_init.__name__,
+                "startStopActivation": self.startStopActivation.__name__,
+                "inner_activation": self.inner_activation.__name__,
+                "truncate_gradient": self.truncate_gradient,
+                "return_sequences": self.return_sequences,
+                "incrementAmount": self.incrementAmount}
+
+class EventSpacingCounter_Minimal(Recurrent):
+    '''
+        I am going to engineer these to specifically detect the spacing between two events...
+        This unit here is super minimal
+    '''
+    def __init__(self, input_dim, output_dim,
+                 init='glorot_uniform', inner_init='orthogonal',
+                 startStopActivation='tanh', inner_activation='tanh', incrementAmount=0.2,
+                 weights=None, truncate_gradient=-1, return_sequences=False):
+
+        super(EventSpacingCounter_Minimal, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim #countOn, countHiddenState
+        self.truncate_gradient = truncate_gradient
+        self.return_sequences = return_sequences
+        self.incrementAmount = incrementAmount;
+
+        self.init = initializations.get(init)
+        self.inner_init = initializations.get(inner_init)
+        self.startStopActivation = activations.get(startStopActivation)
+        self.inner_activation = activations.get(inner_activation)
+        self.input = T.tensor3()
+
+        self.W_startEvent = self.init((self.input_dim, self.output_dim));
+        self.b_startEvent = shared_zeros((self.output_dim));
+
+        self.W_stopEvent = self.init((self.input_dim, self.output_dim));
+        self.b_stopEvent = shared_zeros((self.output_dim));
+
+        self.params = [
+            self.W_startEvent, self.b_startEvent
+            , self.W_stopEvent, self.b_stopEvent
+        ]
+
+        if weights is not None:
+            self.set_weights(weights)
+
+    def _step(self,
+              startEvent_t, stopEvent_t, mask_tm1,
+              h_counterStates_tm1, h_counterValues_tm1,
+              ):
+        #I am going to ignore the mask...I don't
+        #see this playing well with dropout at all...
+        #h_mask_tm1 = mask_tm1 * h_tm1
+        
+        h_counterStates = self.inner_activation(5*(h_counterStates_tm1 + 2*((1-h_counterStates_tm1)*startEvent_t - (h_counterValues_tm1)*stopEvent_t)));
+        h_counterValues = h_counterStates*self.incrementAmount + h_counterValues_tm1;
+        return h_counterStates, h_counterValues;
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+        padded_mask = self.get_padded_shuffled_mask(train, X, pad=1)
+        X = X.dimshuffle((1, 0, 2)) #batch axis first
+
+        startEvent = self.startStopActivation(T.dot(X, self.W_startEvent) + self.b_startEvent)
+        stopEvent = self.startStopActivation(T.dot(X, self.W_stopEvent) + self.b_stopEvent)
+        [counterStates,outputs], updates = theano.scan(
+            self._step,
+            sequences=[startEvent, stopEvent, padded_mask],
+            outputs_info=[T.unbroadcast(alloc_zeros_matrix(X.shape[1], self.output_dim), 1),
+                          T.unbroadcast(alloc_zeros_matrix(X.shape[1], self.output_dim), 1)],
+            non_sequences=[],
+            truncate_gradient=self.truncate_gradient)
+
+        if self.return_sequences:
+            return outputs.dimshuffle((1, 0, 2))
+        return outputs[-1]
+
+    def get_config(self):
+        return {"name": self.__class__.__name__,
+                "input_dim": self.input_dim,
+                "output_dim": self.output_dim,
+                "init": self.init.__name__,
+                "inner_init": self.inner_init.__name__,
+                "startStopActivation": self.startStopActivation.__name__,
+                "inner_activation": self.inner_activation.__name__,
+                "truncate_gradient": self.truncate_gradient,
+                "return_sequences": self.return_sequences,
+                "incrementAmount": self.incrementAmount}
+
 class CounterGRU(Recurrent):
     '''
         I want this to contain a mix of Counter units and the GRU units
+    
+        Ugh...should restructure this to be like the LSTM so it will
+        execute faster. The slicing is a sloww operation.
     '''
     def __init__(self, input_dim, num_gru_outputs, num_counter_outputs,
                  init='glorot_uniform', inner_init='orthogonal',
                  activation='sigmoid', inner_activation='hard_sigmoid',
-                 weights=None, truncate_gradient=-1, return_sequences=False, incrementAmount=0.2):
+                 weights=None, truncate_gradient=-1, return_sequences=False, incrementAmountInit=0.2, learnIncrementAmount=False):
 
         super(CounterGRU, self).__init__()
         self.input_dim = input_dim
@@ -327,7 +499,7 @@ class CounterGRU(Recurrent):
         self.U_r_counter = self.inner_init((self.output_dim, self.num_counter_outputs))
         self.b_r_counter = shared_zeros((self.num_counter_outputs))
 
-        self.incrementAmount = incrementAmount;
+        self.incrementAmount = shared_scalar(val=incrementAmountInit); 
 
         self.params = [
             self.W_z_gru, self.U_z_gru, self.b_z_gru,
@@ -336,6 +508,8 @@ class CounterGRU(Recurrent):
             self.W_z_counter, self.U_z_counter, self.b_z_counter,
             self.W_r_counter, self.U_r_counter, self.b_r_counter,
         ]
+        #if (learnIncrementAmount):
+        #    self.params.append(self.incrementAmount);
 
         if weights is not None:
             self.set_weights(weights)
@@ -355,13 +529,14 @@ class CounterGRU(Recurrent):
         hh_t_gru = self.activation((xh_t_gru) + T.dot(r_gruAndCounter * h_mask_tm1, u_h_gru))
         h_t_gru = z_gru * h_mask_tm1_gru + (1 - z_gru) * hh_t_gru
 
-        
         z_counter = self.inner_activation(xz_t_counter + T.dot(h_mask_tm1, u_z_counter))
+        #z_counter = (xz_t_counter + T.dot(h_mask_tm1, u_z_counter))
         r_counter = self.inner_activation(xr_t_counter + T.dot(h_mask_tm1, u_r_counter))
         #h_mask_tm1 = h_mask_tm1+T.zeros_like(u_z_gru);#like a die command. Crash at right spot.
 
         h_tm1_counter = h_tm1[:,self.num_gru_outputs:];
-        h_t_counter = z_counter*self.incrementAmount  + h_tm1_counter*(1-r_counter); #using h_tm1 and not h_mask_tm1 because otherwise acts like a "reset" flip...(assuming masking is for dropout...)
+        #h_t_counter = z_counter*self.incrementAmount  + h_tm1_counter*(1-r_counter), -5,2; #using h_tm1 and not h_mask_tm1 because otherwise acts like a "reset" flip...(assuming masking is for dropout...)
+        h_t_counter = z_counter + h_tm1_counter*(1-r_counter); #using h_tm1 and not h_mask_tm1 because otherwise acts like a "reset" flip...(assuming masking is for dropout...)
         #toReturn = T.zeros_like(h_tm1);
         #toReturn[:,:self.num_gru_outputs] = h_t_gru;
         #toReturn[:,self.num_gru_outputs:] = h_t_counter;
