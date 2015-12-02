@@ -155,7 +155,7 @@ def get_function_name(o):
 
 class Model(object):
     def _fit(self, f, ins, out_labels=[], batch_size=128, nb_epoch=100, verbose=1, callbacks=[],
-             val_f=None, val_ins=None, shuffle=True, metrics=[]):
+             val_f=None, val_ins=None, shuffle=True, metrics=[], dynamicWeighting=False, ys=None, weights=None):
         '''
             Abstract fit function for f(*ins). Assume that f returns a list, labelled by out_labels.
         '''
@@ -176,6 +176,9 @@ class Model(object):
         callbacks = cbks.CallbackList(callbacks)
 
         callbacks._set_model(self)
+        if (dynamicWeighting):
+            callbacks._set_ys(ys);
+            callbacks._set_weights(weights);
         callbacks._set_params({
             'batch_size': batch_size,
             'nb_epoch': nb_epoch,
@@ -229,6 +232,9 @@ class Model(object):
 
             callbacks.on_epoch_end(epoch, epoch_logs)
             if self.stop_training:
+        """
+            ins are the inputs to f in the _fit method in models.py
+        """
                 break
 
         callbacks.on_train_end()
@@ -399,6 +405,10 @@ class Sequential(Model, containers.Sequential):
                                       allow_input_downcast=True, mode=theano_mode)
         self._train_with_acc = theano.function(train_ins, [train_loss, train_accuracy], updates=updates,
                                                allow_input_downcast=True, mode=theano_mode)
+        self._train_with_acc_and_pred = theano.function(train_ins, [train_loss, train_accuracy, self.y_train], updates=updates,
+                                               allow_input_downcast=True, mode=theano_mode)
+        self._train_with_pred = theano.function(train_ins, [train_loss, self.y_train], updates=updates,
+                                               allow_input_downcast=True, mode=theano_mode)
         self._predict = theano.function(predict_ins, self.y_test,
                                         allow_input_downcast=True, mode=theano_mode)
         self._test = theano.function(test_ins, test_loss,
@@ -406,16 +416,27 @@ class Sequential(Model, containers.Sequential):
         self._test_with_acc = theano.function(test_ins, [test_loss, test_accuracy],
                                               allow_input_downcast=True, mode=theano_mode)
 
-    def train_on_batch(self, X, y, accuracy=False, class_weight=None, sample_weight=None):
+    def train_on_batch(self, X, y, accuracy=False, class_weight=None, sample_weight=None, dynamicWeighting=False):
         X = standardize_X(X)
         y = standardize_y(y)
         sample_weight = standardize_weights(y, class_weight=class_weight, sample_weight=sample_weight)
 
         ins = X + [y, sample_weight]
+        trainFunc, labels = self.getTrainFuncWithLabels(accuracy, dynamicWeighting);
+        return trainFunc(*ins); 
+
+    def getTrainFuncWithLabels(self, accuracy, dynamicWeighting):
         if accuracy:
-            return self._train_with_acc(*ins)
+            if (dynamicWeighting):
+                return self._train_with_acc_and_pred(*ins), ['loss', 'acc', 'pred']
+            else:
+                return self._train_with_acc(*ins), ['loss', 'acc']
         else:
-            return self._train(*ins)
+            if (dynamicWeighting):
+                return self._train_with_pred(*ins), ['loss', 'pred']
+            else:
+                return self._train(*ins), ['loss']
+        
 
     def test_on_batch(self, X, y, accuracy=False, sample_weight=None):
         X = standardize_X(X)
@@ -434,7 +455,7 @@ class Sequential(Model, containers.Sequential):
 
     def fit(self, X, y, batch_size=128, nb_epoch=100, verbose=1, callbacks=[],
             validation_split=0., validation_data=None, shuffle=True, show_accuracy=False,
-            class_weight=None, sample_weight=None):
+            class_weight=None, sample_weight=None, dynamicWeightingCallback=None):
 
         X = standardize_X(X)
         y = standardize_y(y)
@@ -473,20 +494,16 @@ class Sequential(Model, containers.Sequential):
                 sample_weight_val = np.ones(y_val.shape[:-1] + (1,))
             val_ins = X_val + [y_val, sample_weight_val]
 
-        if show_accuracy:
-            f = self._train_with_acc
-            out_labels = ['loss', 'acc']
-        else:
-            f = self._train
-            out_labels = ['loss']
-
+        dynamicWeighting = dynamicWeightingCallback is not None;
+        callbacks.append(dynamicWeightingCallback);
+        f, out_labels = self.getTrainFuncWithLabels(show_accuracy, dynamicWeighting=dynamicWeighting);
         sample_weight = standardize_weights(y, class_weight=class_weight, sample_weight=sample_weight)
         ins = X + [y, sample_weight]
         metrics = ['loss', 'acc', 'val_loss', 'val_acc']
         return self._fit(f, ins, out_labels=out_labels, batch_size=batch_size, nb_epoch=nb_epoch,
                          verbose=verbose, callbacks=callbacks,
                          val_f=val_f, val_ins=val_ins,
-                         shuffle=shuffle, metrics=metrics)
+                         shuffle=shuffle, metrics=metrics, dynamicWeighting=dynamicWeighting)
 
     def predict(self, X, batch_size=128, verbose=0):
         X = standardize_X(X)

@@ -20,6 +20,13 @@ class CallbackList(object):
         for callback in self.callbacks:
             callback._set_params(params)
 
+    def _set_ins(self, ins):
+        """
+            ins are the inputs to f in the _fit method in models.py
+        """
+        for callback in self.callbacks:
+            callback._set_ins(ins)
+
     def _set_model(self, model):
         for callback in self.callbacks:
             callback._set_model(model)
@@ -77,6 +84,21 @@ class Callback(object):
     def _set_model(self, model):
         self.model = model
 
+    def _set_ys(self, ys):
+        """
+            intended for dynamic reweighting callback.
+                ys is the true ys.
+        """
+        self.ys=ys
+
+    def _set_weights(self, weights):
+        """
+            intended for dynamic reweighting callback.
+            Weights needs to be a reference to the original
+                weights array
+        """
+        self.weights=weights;
+    
     def on_epoch_begin(self, epoch, logs={}):
         pass
 
@@ -95,6 +117,25 @@ class Callback(object):
     def on_train_end(self, logs={}):
         pass
 
+class AbstractDynamicReweightingCallback(object):
+    """
+        Relies on having ys and weights.
+        Will compile the predictions across all the batches,
+        and will apply the reweighting at the end of the epoch
+    """ 
+    def on_epoch_begin(self):
+        self.epochPredictions = []; 
+    def on_batch_end(self, batch, logs={}):
+        if ('preds' not in logs):
+            raise RuntimeError("The predictionsa are supposed to"
+                "appear in the batch logs. My guess for why this"
+                "is not the case is that this dynamic reweighting"
+                "callback was not provided as part of the"
+                "dynamicReweightingCallback keyword");
+        batch_preds = logs['preds'];
+        self.epochPredictions.extend(batch_preds);
+    def on_epoch_end(self):
+        raise RuntimeError("Not implemented; dynamic reweighting logic should go here");
 
 class BaseLogger(Callback):
     def on_train_begin(self, logs={}):
