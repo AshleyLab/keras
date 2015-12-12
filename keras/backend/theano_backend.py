@@ -409,10 +409,7 @@ def rnn(step_function, inputs, initial_states,
     '''
     inputs = inputs.dimshuffle((1, 0, 2))
 
-    def _step(*args):
-        global single_result
-        input = args[0]
-        states = args[1:]
+    def _step(input, *states):
         output, new_states = step_function(input, states)
         if masking:
             # if all-zero input timestep, return
@@ -517,7 +514,8 @@ def dropout(x, level, seed=None):
 # CONVOLUTIONS
 
 
-def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th'):
+def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
+           image_shape=None, filter_shape=None):
     '''
     Run on cuDNN if available.
     border_mode: string, "same" or "valid".
@@ -534,6 +532,12 @@ def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th'):
         # TF kernel shape: (rows, cols, input_depth, depth)
         x = x.dimshuffle((0, 3, 1, 2))
         kernel = kernel.dimshuffle((3, 2, 0, 1))
+        if image_shape:
+            image_shape = (image_shape[0], image_shape[3],
+                           image_shape[1], image_shape[2])
+        if filter_shape:
+            filter_shape = (filter_shape[3], filter_shape[2],
+                            filter_shape[0], filter_shape[1])
 
     if _on_gpu() and dnn.dnn_available():
         if border_mode == 'same':
@@ -560,7 +564,9 @@ def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th'):
 
         conv_out = T.nnet.conv.conv2d(x, kernel,
                                       border_mode=th_border_mode,
-                                      subsample=strides)
+                                      subsample=strides,
+                                      image_shape=image_shape,
+                                      filter_shape=filter_shape)
         if border_mode == 'same':
             shift_x = (kernel.shape[2] - 1) // 2
             shift_y = (kernel.shape[3] - 1) // 2
@@ -572,8 +578,8 @@ def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th'):
     return conv_out
 
 
-def maxpool2d(x, pool_size, strides=(1, 1), border_mode='valid',
-              dim_ordering='th'):
+def pool2d(x, pool_size, strides=(1, 1), border_mode='valid',
+           dim_ordering='th', pool_mode='max'):
     if border_mode == 'same':
         # TODO: add implementation for border_mode="same"
         raise Exception('border_mode="same" not supported with Theano.')
@@ -589,23 +595,41 @@ def maxpool2d(x, pool_size, strides=(1, 1), border_mode='valid',
     if dim_ordering == 'tf':
         x = x.dimshuffle((0, 3, 1, 2))
 
-    if _on_gpu() and dnn.dnn_available():
-        pool_out = dnn_pool(x,
-                          pool_size,
-                          stride=strides)
+    if pool_mode == 'max':
+        if _on_gpu() and dnn.dnn_available():
+            pool_out = dnn_pool(x,
+                                pool_size,
+                                stride=strides,
+                                mode='max')
+        else:
+            pool_out = downsample.max_pool_2d(x,
+                                              ds=pool_size,
+                                              st=strides,
+                                              ignore_border=ignore_border,
+                                              padding=padding,
+                                              mode='max')
+    elif pool_mode == 'avg':
+        if _on_gpu() and dnn.dnn_available():
+            pool_out = dnn_pool(x,
+                                pool_size,
+                                stride=strides,
+                                mode='average_exc_pad')
+        else:
+            pool_out = downsample.max_pool_2d(x,
+                                              ds=pool_size,
+                                              st=strides,
+                                              ignore_border=ignore_border,
+                                              padding=padding,
+                                              mode='average_exc_pad')
     else:
-        pool_out = downsample.max_pool_2d(x,
-                                        ds=pool_size,
-                                        st=strides,
-                                        ignore_border=ignore_border,
-                                        padding=padding,
-                                        mode='average_exc_pad')
+        raise Exception('Invalid pooling mode: ' + str(pool_mode))
+    
     if dim_ordering == 'tf':
         pool_out = pool_out.dimshuffle((0, 2, 3, 1))
     return pool_out
 
-
 # RANDOMNESS
+
 
 def random_normal(shape, mean=0.0, std=1.0, dtype=_FLOATX, seed=None):
     if seed is None:
@@ -619,8 +643,6 @@ def random_uniform(shape, low=0.0, high=1.0, dtype=_FLOATX, seed=None):
         seed = np.random.randint(10e6)
     rng = RandomStreams(seed=seed)
     return rng.uniform(shape, low=low, high=high, dtype=dtype)
-
-
 
 '''
 more TODO:

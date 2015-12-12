@@ -20,13 +20,24 @@ class Sequential(Layer):
 
     def __init__(self, layers=[]):
         self.layers = []
+        self.layer_cache = {}
         for layer in layers:
             self.add(layer)
+
+    def __call__(self, X, train=False):
+        # set temporary input to first layer
+        tmp = self.layers[0].get_input
+        self.layers[0].get_input = lambda _: X
+        Y = self.get_output(train=train)
+        # return input to first layer to what it was
+        self.layers[0].get_input = tmp
+        return Y
 
     def set_previous(self, layer):
         self.layers[0].previous = layer
 
     def add(self, layer):
+        layer.layer_cache = self.layer_cache
         self.layers.append(layer)
         if len(self.layers) > 1:
             self.layers[-1].set_previous(self.layers[-2])
@@ -74,6 +85,25 @@ class Sequential(Layer):
         return updates
 
     @property
+    def state_updates(self):
+        """
+        Returns the `updates` from all layers in the sequence that are
+        stateful.  This is useful for separating _training_ updates and
+        _prediction_ updates for when we need to update a layers internal state
+        during a stateful prediction.
+        """
+        state_updates = []
+        for l in self.layers:
+            if getattr(l, 'stateful', False):
+                state_updates += l.get_params()[3]
+        return state_updates
+
+    def reset_states(self):
+        for l in self.layers:
+            if hasattr(l, 'reset_states') and getattr(l, 'stateful', False):
+                l.reset_states()
+
+    @property
     def output_shape(self):
         return self.layers[-1].output_shape
 
@@ -83,7 +113,7 @@ class Sequential(Layer):
     def set_input(self):
         for l in self.layers:
             if hasattr(l, 'input'):
-                ndim = len(K.get_shape(l.input))
+                ndim = K.ndim(l.input)
                 self.layers[0].input = K.placeholder(ndim=ndim)
                 break
 
@@ -145,6 +175,7 @@ class Graph(Layer):
         self.input_config = []  # dicts
         self.output_config = []  # dicts
         self.node_config = []  # dicts
+        self.layer_cache = {}
 
     @property
     def nb_input(self):
@@ -193,6 +224,25 @@ class Graph(Layer):
             if l.trainable:
                 updates += l.get_params()[4]
         return updates
+
+    @property
+    def state_updates(self):
+        """
+        Returns the `updates` from all nodes in that graph for nodes that are
+        stateful.  This is useful for separating _training_ updates and
+        _prediction_ updates for when we need to update a layers internal state
+        during a stateful prediction.
+        """
+        state_updates = []
+        for l in self.nodes.values():
+            if getattr(l, 'stateful', False):
+                state_updates += l.get_params()[3]
+        return state_updates
+
+    def reset_states(self):
+        for l in self.nodes.values():
+            if hasattr(l, 'reset_states') and getattr(l, 'stateful', False):
+                l.reset_states()
 
     def set_previous(self, layer, connection_map={}):
         if self.nb_input != layer.nb_output:
@@ -283,6 +333,7 @@ class Graph(Layer):
             layer.set_previous(merge)
 
         self.namespace.add(name)
+        layer.layer_cache = self.layer_cache
         self.nodes[name] = layer
         self.node_config.append({'name': name,
                                  'input': input,
@@ -313,6 +364,7 @@ class Graph(Layer):
         create_output -  Similar to create_output argument of add_node().
             Output will be created only if merge_mode is given
         '''
+        layer.layer_cache = self.layer_cache
         if name in self.namespace:
             raise Exception('Duplicate node identifier: ' + name)
         for o in outputs:
@@ -320,7 +372,7 @@ class Graph(Layer):
                 raise Exception('Duplicate node identifier: ' + o)
         if merge_mode:
             if merge_mode not in {'sum', 'ave', 'mul', 'dot', 'cos', 'concat', 'join'}:
-                raise Eception("Invalid merge mode")
+                raise Exception("Invalid merge mode")
         layers = []
         for i in range(len(inputs)):
             input = inputs[i]
@@ -342,7 +394,6 @@ class Graph(Layer):
             else:
                 raise Exception('Unknown identifier: ' + input)
         s = Siamese(layer, layers, merge_mode, concat_axis=concat_axis, dot_axes=dot_axes)
-        s.set_name(name)
         self.namespace.add(name)
         self.nodes[name] = s
         self.node_config.append({'name': name,
@@ -356,7 +407,6 @@ class Graph(Layer):
                 sh = SiameseHead(i)
                 sh.previous = s
                 sh_name = outputs[i]
-                sh.set_name(sh_name)
                 self.namespace.add(sh_name)
                 self.nodes[sh_name] = sh
                 self.node_config.append({'name': sh_name,

@@ -33,6 +33,15 @@ class Layer(object):
         if not hasattr(self, 'params'):
             self.params = []
 
+    def __call__(self, X, train=False):
+        # set temporary input
+        tmp = self.get_input
+        self.get_input = lambda _: X
+        Y = self.get_output(train=train)
+        # return input to what it was
+        self.get_input = tmp
+        return Y
+
     def set_previous(self, layer, connection_map={}):
         assert self.nb_input == layer.nb_output == 1, "Cannot connect layers: input count and output count should be 1."
         if hasattr(self, 'input_ndim'):
@@ -89,7 +98,8 @@ class Layer(object):
         if hasattr(self, 'input_ndim') and self.input_ndim:
             if self.input_ndim != len(input_shape):
                 raise Exception('Invalid input shape - Layer expects input ndim=' +
-                                str(self.input_ndim) + ', was provided with input shape ' + str(input_shape))
+                                str(self.input_ndim) +
+                                ', was provided with input shape ' + str(input_shape))
         self._input_shape = input_shape
         self.input = K.placeholder(shape=self._input_shape)
         self.build()
@@ -104,12 +114,22 @@ class Layer(object):
 
     def get_input(self, train=False):
         if hasattr(self, 'previous'):
-            return self.previous.get_output(train=train)
+            # to avoid redundant computations,
+            # layer outputs are cached when possible.
+            if hasattr(self, 'layer_cache'):
+                previous_layer_id = '%s_%s' % (id(self.previous), train)
+                if previous_layer_id in self.layer_cache:
+                    return self.layer_cache[previous_layer_id]
+            previous_output = self.previous.get_output(train=train)
+            if hasattr(self, 'layer_cache'):
+                previous_layer_id = '%s_%s' % (id(self.previous), train)
+                self.layer_cache[previous_layer_id] = previous_output
+            return previous_output
         elif hasattr(self, 'input'):
             return self.input
         else:
-            raise Exception('Layer is not connected\
-                and is not an input layer.')
+            raise Exception('Layer is not connected' +
+                            'and is not an input layer.')
 
     def supports_masked_input(self):
         ''' Whether or not this layer respects the output mask of its previous layer in its calculations. If you try
@@ -397,7 +417,7 @@ class Merge(Layer):
                 shape = tensordot_output.shape
             return (shape1[0],) + shape
         elif self.mode == 'cos':
-            return tuple(input_shapes[0][0], 1)
+            return (input_shapes[0][0], 1)
 
     def get_params(self):
         return self.params, self.regularizers, self.constraints,\
@@ -445,9 +465,8 @@ class Merge(Layer):
             import theano
             l1 = self.layers[0].get_output(train)
             l2 = self.layers[1].get_output(train)
-            output, _ = theano.scan(lambda v1, v2: K.dot(v1, v2) / K.sqrt(K.dot(v1, v1) * K.dot(v2, v2)),
-                                    sequences=[l1, l2],
-                                    outputs_info=None)
+            output = T.batched_tensordot(l1, l2, self.dot_axes) / T.sqrt(T.batched_tensordot(l1, l1, self.dot_axes) * T.batched_tensordot(l2, l2, self.dot_axes))
+            output = output.dimshuffle((0, 'x'))
             return output
         else:
             raise Exception('Unknown merge mode')
@@ -1046,7 +1065,7 @@ class Lambda(Layer):
             self.function = marshal.dumps(function.func_code)
         if output_shape is None:
             self._output_shape = None
-        elif type(output_shape) in {tuple, list} :
+        elif type(output_shape) in {tuple, list}:
             self._output_shape = tuple(output_shape)
         else:
             if py3:
@@ -1281,7 +1300,7 @@ class Siamese(Layer):
             return tuple(shape)
 
         elif self.merge_mode == 'cos':
-            return tuple(input_shapes[0][0], 1)
+            return (input_shapes[0][0], 1)
 
     def get_params(self):
         return self.params, self.regularizers, self.constraints, self.updates
@@ -1350,8 +1369,7 @@ class Siamese(Layer):
         from theano import tensor as T
         l1 = self.get_output_at(0, train)
         l2 = self.get_output_at(1, train)
-        cos = lambda v1, v2: T.dot(v1, v2) / T.sqrt(T.dot(v1, v1) * T.dot(v2, v2))
-        output, _ = theano.scan(cos, sequences=[l1, l2], outputs_info=None)
+        output = T.batched_tensordot(l1, l2, self.dot_axes) / T.sqrt(T.batched_tensordot(l1, l1, self.dot_axes) * T.batched_tensordot(l2, l2, self.dot_axes))
         output = output.dimshuffle((0, 'x'))
         return output
 
@@ -1370,7 +1388,7 @@ class Siamese(Layer):
         elif mode == 'dot':
             return self.get_output_dot(train)
         elif mode == 'cos':
-            return self.get_output_dot(train)
+            return self.get_output_cos(train)
 
     def get_input(self, train=False):
         res = []
@@ -1413,7 +1431,7 @@ class Siamese(Layer):
     def get_config(self):
 
         config = {"name": self.__class__.__name__,
-                  "layer": self.layer.get_config,
+                  "layer": self.layer.get_config(),
                   "inputs": [m.get_config() for m in self.inputs],
                   "merge_mode": self.merge_mode,
                   "concat_axis": self.concat_axis,
