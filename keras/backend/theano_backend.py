@@ -1,5 +1,7 @@
 import theano
 from theano import tensor as T
+from theano.ifelse import ifelse as _ifelse
+from theano.printing import Print
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 from theano.tensor.signal import downsample
 import numpy as np
@@ -134,6 +136,8 @@ def gather(reference, indices):
 
 # ELEMENT-WISE OPERATIONS
 
+def and_(x, y):
+    return T.and_(x, y)
 
 def max(x, axis=None, keepdims=False):
     return T.max(x, axis=axis, keepdims=keepdims)
@@ -163,6 +167,9 @@ def mean(x, axis=None, keepdims=False):
 def std(x, axis=None, keepdims=False):
     return T.std(x, axis=axis, keepdims=keepdims)
 
+
+def all(x, axis=None, keepdims=False):
+    return T.all(x, axis=axis, keepdims=keepdims)
 
 def any(x, axis=None, keepdims=False):
     '''Bitwise reduction (logical OR).
@@ -217,6 +224,14 @@ def equal(x, y):
     return T.eq(x, y)
 
 
+def ge(x, y):
+    return T.ge(x, y)
+
+
+def gt(x, y):
+    return T.gt(x, y)
+
+
 def maximum(x, y):
     return T.maximum(x, y)
 
@@ -224,6 +239,26 @@ def maximum(x, y):
 def minimum(x, y):
     return T.minimum(x, y)
 
+
+def nonzero(x, return_matrix=False):
+    return T.nonzero(x, return_matrix)
+
+# EXTRA OPS
+
+def arange(start, stop=None, step=1, dtype=None):
+    return T.arange(start, stop, step, dtype)
+
+
+def sort(x, axis=-1, kind='quicksort', order=None):
+    return T.sort(x, axis=axis, kind=kind, order=order)
+
+
+def cumsum(x, axis=None):
+    return T.extra_ops.cumsum(x, axis=axis)
+
+
+def print_(x, message=''):
+    return Print(message)(x)
 
 # SHAPE OPERATIONS
 
@@ -452,6 +487,9 @@ def rnn(step_function, inputs, initial_states,
     states = [T.squeeze(state[-1]) for state in states]
     return last_output, outputs, states
 
+
+def ifelse(condition, then_expression, else_expression):
+    return _ifelse(condition, then_expression, else_expression)
 
 def switch(condition, then_expression, else_expression):
     '''condition: scalar tensor.
