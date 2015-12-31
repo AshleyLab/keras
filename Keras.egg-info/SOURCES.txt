@@ -3,6 +3,7 @@ setup.py
 Keras.egg-info/PKG-INFO
 Keras.egg-info/SOURCES.txt
 Keras.egg-info/dependency_links.txt
+Keras.egg-info/pbr.json
 Keras.egg-info/requires.txt
 Keras.egg-info/top_level.txt
 keras/__init__.py
@@ -14,6 +15,10 @@ keras/models.py
 keras/objectives.py
 keras/optimizers.py
 keras/regularizers.py
+keras/backend/__init__.py
+keras/backend/common.py
+keras/backend/tensorflow_backend.py
+keras/backend/theano_backend.py
 keras/datasets/__init__.py
 keras/datasets/cifar.py
 keras/datasets/cifar10.py
@@ -41,16 +46,6 @@ keras/utils/io_utils.py
 keras/utils/layer_utils.py
 keras/utils/np_utils.py
 keras/utils/test_utils.py
-keras/utils/theano_utils.py
+keras/utils/visualize_util.py
 keras/wrappers/__init__.py
 keras/wrappers/scikit_learn.py
-tests/__init__.py
-tests/manual/__init__.py
-tests/manual/check_autoencoder.py
-tests/manual/check_callbacks.py
-tests/manual/check_constraints.py
-tests/manual/check_masked_recurrent.py
-tests/manual/check_model_utils.py
-tests/manual/check_save_weights.py
-tests/manual/check_wrappers.py
-tests/manual/check_yaml.py
