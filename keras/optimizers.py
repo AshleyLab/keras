@@ -299,14 +299,14 @@ class Adamax(Optimizer):
         self.beta_1 = K.variable(beta_1)
         self.beta_2 = K.variable(beta_2)
 
-    def get_updates(self, params, constraints, loss):
+    def get_updates(self, params, constraints, learning_rate_multipliers, loss):
         grads = self.get_gradients(loss, params)
         self.updates = [(self.iterations, self.iterations+1.)]
 
         t = self.iterations + 1
         lr_t = self.lr / (1 - K.pow(self.beta_1, t))
 
-        for p, g, c in zip(params, grads, constraints):
+        for p, g, c, lmul in zip(params, grads, constraints, learning_rate_multipliers):
             # zero init of 1st moment
             m = K.variable(np.zeros(K.get_value(p).shape))
             # zero init of exponentially weighted infinity norm
@@ -314,7 +314,7 @@ class Adamax(Optimizer):
 
             m_t = (self.beta_1 * m) + (1 - self.beta_1) * g
             u_t = K.maximum(self.beta_2 * u, K.abs(g))
-            p_t = p - lr_t * m_t / (u_t + self.epsilon)
+            p_t = p - (lr_t*lmul) * m_t / (u_t + self.epsilon)
 
             self.updates.append((m, m_t))
             self.updates.append((u, u_t))
