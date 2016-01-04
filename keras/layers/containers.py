@@ -120,7 +120,7 @@ class Sequential(Layer):
         state_updates = []
         for l in self.layers:
             if getattr(l, 'stateful', False):
-                state_updates += l.get_params()[3]
+                state_updates += l.get_params()[4]
         return state_updates
 
     def reset_states(self):
@@ -256,7 +256,7 @@ class Graph(Layer):
         state_updates = []
         for l in self.nodes.values():
             if getattr(l, 'stateful', False):
-                state_updates += l.get_params()[3]
+                state_updates += l.get_params()[4]
         return state_updates
 
     def reset_states(self):
