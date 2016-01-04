@@ -1591,19 +1591,21 @@ class Siamese(Layer):
         self.params = []
         self.regularizers = []
         self.constraints = []
+        self.learning_rate_multipliers = []
         self.updates = []
         layers = [layer]
         if merge_mode and not is_graph:
             layers += inputs
         for l in layers:
-            params, regs, consts, updates = l.get_params()
+            params, regs, consts, lmuls, updates = l.get_params()
             self.regularizers += regs
             self.updates += updates
             # params and constraints have the same size
-            for p, c in zip(params, consts):
+            for p, c, lmul in zip(params, consts, lmuls):
                 if p not in self.params:
                     self.params.append(p)
                     self.constraints.append(c)
+                    self.learning_rate_multipliers.append(lmul)
         super(Siamese, self).__init__()
 
     @property
@@ -1640,7 +1642,8 @@ class Siamese(Layer):
             return (input_shapes[0][0], 1)
 
     def get_params(self):
-        return self.params, self.regularizers, self.constraints, self.updates
+        return self.params, self.regularizers, self.constraints,\
+                    self.learning_rate_multipliers, self.updates
 
     def set_layer_input(self, head):
         layer = self.layer
@@ -1889,6 +1892,8 @@ class Highway(Layer):
         self.W_constraint = constraints.get(W_constraint)
         self.b_constraint = constraints.get(b_constraint)
         self.constraints = [self.W_constraint, self.b_constraint]
+        
+        self.learning_rate_multipliers = []
 
         self.initial_weights = weights
 

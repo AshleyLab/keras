@@ -520,7 +520,7 @@ def switch(condition, then_expression, else_expression):
 # NN OPERATIONS
 
 def relu(x, alpha=0., max_value=None):
-    x = (x + abs(x)) / 2.0
+    x = (x + abs(x))/2.0 + (alpha*(x - abs(x)))/2.0
     if max_value is not None:
         x = T.minimum(x, max_value)
     return x
