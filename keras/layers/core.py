@@ -37,8 +37,20 @@ class Layer(object):
                           'trainable',
                           'batch_input_shape',
                           'cache_enabled'}
+        
+        ignorable_kwargs = {
+        #The next two kwargs were formerly part of 'Activation' and will thus be ignored
+        #https://github.com/kundajelab/keras/blob/57c70655adb5f6adac5c37273530569a85e7468c/keras/layers/core.py#L543
+                            'beta' 
+                            , 'target'
+        }
         for kwarg in kwargs:
-            assert kwarg in allowed_kwargs, 'Keyword argument not understood: ' + kwarg
+            if kwarg not in allowed_kwargs:
+                if kwarg in ignorable_kwargs:
+                    print("Ignoring keyword ",kwarg,"in the yaml"+
+                          " (this message comes from layers/core.py)");
+                else:
+                    raise RuntimeError('Keyword argument not understood: ' + kwarg)
         if 'input_shape' in kwargs:
             self.set_input_shape((None,) + tuple(kwargs['input_shape']))
         if 'batch_input_shape' in kwargs:
