@@ -398,7 +398,12 @@ class Sequential(Model, containers.Sequential):
         '''
         self.optimizer = optimizers.get(optimizer)
 
-        self.loss = objectives.get(loss)
+        if isinstance(loss, six.string_types):
+            self.loss = objectives.get(loss)
+        else:
+            assert hasattr(loss, '__call__');
+            self.loss = loss;
+        
         weighted_loss = weighted_objective(self.loss)
 
         # input of model

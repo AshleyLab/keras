@@ -43,12 +43,14 @@ def categorical_crossentropy(y_true, y_pred):
 def binary_crossentropy(y_true, y_pred):
     return K.mean(K.binary_crossentropy(y_pred, y_true), axis=-1)
 
-def weighted_binary_crossentropy(y_true, y_pred, w_0=1, w_1=1):
-    y_pred = T.clip(y_pred, epsilon, 1.0 - epsilon)
-    weight_vector = w_1*y_true + w_0*(1-y_true) 
-    #bce = (weight_vector * T.nnet.binary_crossentropy(y_pred, y_true)).mean(axis=-1)
-    bce = T.sum(weight_vector * T.nnet.binary_crossentropy(y_pred, y_true), axis=-1) / T.sum(weight_vector, axis=-1)
-    return bce
+def get_weighted_binary_crossentropy(w0_weights, w1_weights):
+    w0_weights=np.array(w0_weights);
+    w1_weights=np.array(w1_weights);
+    def weighted_binary_crossentropy(y_true, y_pred):
+        #remember: y_true is 2d; first axis is batch, second is tasks
+        weightVectors = y_true*w1_weights[None,:] + (1-y_true)*w0_weights[None,:] 
+        return K.mean(K.binary_crossentropy(y_pred, y_true)*weightVectors, axis=-1);
+    return weighted_binary_crossentropy; 
 
 def poisson_loss(y_true, y_pred):
     return K.mean(y_pred - y_true * K.log(y_pred + K.epsilon()), axis=-1)
