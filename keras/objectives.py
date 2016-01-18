@@ -52,8 +52,17 @@ def get_weighted_binary_crossentropy(w0_weights, w1_weights):
         return K.mean(K.binary_crossentropy(y_pred, y_true)*weightVectors, axis=-1);
     return weighted_binary_crossentropy; 
 
-def poisson_loss(y_true, y_pred):
+def poisson(y_true, y_pred):
     return K.mean(y_pred - y_true * K.log(y_pred + K.epsilon()), axis=-1)
+
+
+def cosine_proximity(y_true, y_pred):
+    assert K.ndim(y_true) == 2
+    assert K.ndim(y_pred) == 2
+    y_true = K.l2_normalize(y_true, axis=1)
+    y_pred = K.l2_normalize(y_pred, axis=1)
+    return -K.mean(y_true * y_pred, axis=1)
+
 
 # aliases
 mse = MSE = mean_squared_error
@@ -61,6 +70,7 @@ rmse = RMSE = root_mean_squared_error
 mae = MAE = mean_absolute_error
 mape = MAPE = mean_absolute_percentage_error
 msle = MSLE = mean_squared_logarithmic_error
+cosine = cosine_proximity
 
 from .utils.generic_utils import get_from_module
 def get(identifier):

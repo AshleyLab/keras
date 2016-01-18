@@ -324,6 +324,10 @@ def tile(x, n):
 
 
 def flatten(x):
+    return T.flatten(x)
+
+
+def batch_flatten(x):
     '''Turn a n-D tensor into a 2D tensor where
     the first dimension is conserved.
     '''
@@ -419,6 +423,7 @@ class Function(object):
                                         allow_input_downcast=True, **kwargs)
 
     def __call__(self, inputs):
+        assert type(inputs) in {list, tuple}
         return self.function(*inputs)
 
 
@@ -577,8 +582,12 @@ def dropout(x, level, seed=None):
     return x
 
 
-# CONVOLUTIONS
+def l2_normalize(x, axis):
+    norm = T.sqrt(T.sum(T.square(x), axis=axis, keepdims=True))
+    return x / norm
 
+
+# CONVOLUTIONS
 
 def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
            image_shape=None, filter_shape=None):
@@ -611,8 +620,9 @@ def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
             conv_out = dnn.dnn_conv(img=x,
                                     kerns=kernel,
                                     border_mode='full')
-            shift_x = (kernel.shape[2] - 1) // 2
-            shift_y = (kernel.shape[3] - 1) // 2
+            np_kernel = kernel.eval()
+            shift_x = (np_kernel.shape[2] - 1) // 2
+            shift_y = (np_kernel.shape[3] - 1) // 2
             conv_out = conv_out[:, :,
                                 shift_x:x.shape[2] + shift_x,
                                 shift_y:x.shape[3] + shift_y]
@@ -636,8 +646,9 @@ def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
                                       image_shape=image_shape,
                                       filter_shape=filter_shape)
         if border_mode == 'same':
-            shift_x = (kernel.shape[2] - 1) // 2
-            shift_y = (kernel.shape[3] - 1) // 2
+            np_kernel = kernel.eval()
+            shift_x = (np_kernel.shape[2] - 1) // 2
+            shift_y = (np_kernel.shape[3] - 1) // 2
             conv_out = conv_out[:, :,
                                 shift_x:x.shape[2] + shift_x,
                                 shift_y:x.shape[3] + shift_y]
