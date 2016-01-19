@@ -81,6 +81,8 @@ def weighted_objective(fn):
         # score_array has ndim >= 2
         score_array = fn(y_true, y_pred)
         if mask is not None:
+            # Cast the mask to floatX to avoid float64 upcasting in theano
+            mask = K.cast(mask, K.floatx())
             # mask should have the same shape as score_array
             score_array *= mask
             #  the loss per batch should be proportional
@@ -154,6 +156,16 @@ def model_from_config(config, custom_objects={}):
     if 'optimizer' in config:
         # if it has an optimizer, the model is assumed to be compiled
         loss = config.get('loss')
+
+        # if a custom loss function is passed replace it in loss
+        if model_name == 'Graph':
+            for l in loss:
+                for c in custom_objects:
+                    if loss[l] == c:
+                        loss[l] = custom_objects[c]
+        elif model_name == 'Sequential' and loss in custom_objects:
+            loss = custom_objects[loss]
+
         class_mode = config.get('class_mode')
 
         optimizer_params = dict([(k, v) for k, v in config.get('optimizer').items()])
@@ -368,8 +380,21 @@ class Model(object):
         `keras.models.from_json(json_string, custom_objects={})`.
         '''
         import json
+
+        def get_json_type(obj):
+
+            # if obj is any numpy type
+            if type(obj).__module__ == np.__name__:
+                return obj.item()
+
+            # if obj is a python 'type'
+            if type(obj).__name__ == type.__name__:
+                return obj.__name__
+
+            raise TypeError('Not JSON Serializable')
+
         config = self.get_config()
-        return json.dumps(config, **kwargs)
+        return json.dumps(config, default=get_json_type, **kwargs)
 
     def summary(self):
         '''Print out a summary of the model architecture,
@@ -398,7 +423,12 @@ class Sequential(Model, containers.Sequential):
         '''
         self.optimizer = optimizers.get(optimizer)
 
-        self.loss = objectives.get(loss)
+        if isinstance(loss, six.string_types):
+            self.loss = objectives.get(loss)
+        else:
+            assert hasattr(loss, '__call__');
+            self.loss = loss;
+        
         weighted_loss = weighted_objective(self.loss)
 
         # input of model
@@ -454,8 +484,8 @@ class Sequential(Model, containers.Sequential):
         self._train = K.function(train_ins, [train_loss], updates=updates)
         self._train_with_acc = K.function(train_ins, [train_loss, train_accuracy], updates=updates)
         self._predict = K.function(predict_ins, [self.y_test], updates=self.state_updates)
-        self._test = K.function(test_ins, [test_loss])
-        self._test_with_acc = K.function(test_ins, [test_loss, test_accuracy])
+        self._test = K.function(test_ins, [test_loss], updates=self.state_updates)
+        self._test_with_acc = K.function(test_ins, [test_loss, test_accuracy], updates=self.state_updates)
 
     def fit(self, X, y, batch_size=128, nb_epoch=100, verbose=1, callbacks=[],
             validation_split=0., validation_data=None, shuffle=True,
@@ -1051,7 +1081,7 @@ class Graph(Model, containers.Graph):
         self.loss = loss
 
         self._train = K.function(train_ins, [train_loss], updates=updates)
-        self._test = K.function(test_ins, [test_loss])
+        self._test = K.function(test_ins, [test_loss], updates=self.state_updates)
         self._predict = K.function(inputs=ins, outputs=ys_test,
                                    updates=self.state_updates)
 
