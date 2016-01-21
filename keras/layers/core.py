@@ -893,6 +893,90 @@ class RepeatVector(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
+# NOTE: Only supports Theano tensor ordering
+class Input(Layer):
+    '''Input layer for getting maximizing inputs.
+
+    # Input shape
+        This layer takes no input.
+
+    # Output shape
+        3D tensor with shape: `(nb_channels, nb_rows, nb_cols)`
+
+    # Arguments
+        nb_channels: int > 0
+        nb_rows: int > 0
+        nb_cols: int > 0
+        init: name of initialization function for the weights of the layer
+            (see [initializations](../initializations.md)),
+            or alternatively, Theano function to use for weights
+            initialization. This parameter is only relevant
+            if you don't pass a `weights` argument.
+        weights: list of numpy arrays to set as initial weights
+            The list should have 1 element, of shape `(nb_channels, nb_rows,
+            nb_cols)`
+        W_regularizer: instance of [WeightRegularizer](../regularizers.md)
+            (eg. L1 or L2 regularization), applied to the main weights matrix.
+        W_constraint: instance of the [constraints](../constraints.md) module
+            (eg. maxnorm, nonneg), applied to the main weights matrix.
+    '''
+    input_ndim = 0
+
+    def __init__(self, nb_channel, nb_row, nb_col, init='glorot_uniform',
+                 weights=None, W_regularizer=None, W_constraint=None,
+                 W_learning_rate_multiplier=None, **kwargs):
+        self.nb_channel = nb_channel
+        self.nb_row = nb_row
+        self.nb_col = nb_col
+        self.init = initializations.get(init)
+        self.W_regularizer = regularizers.get(W_regularizer)
+
+        self.W_constraint = constraints.get(W_constraint)
+        self.constraints = [self.W_constraint]
+
+        self.W_learning_rate_multiplier = W_learning_rate_multiplier
+        self.learning_rate_multipliers = [self.W_learning_rate_multiplier]
+
+        self.initial_weights = weights
+        self.input = []
+        super(Input, self).__init__(**kwargs)
+        self.build()
+
+    def build(self):
+        self.W_shape = (1, self.nb_channel, self.nb_row, self.nb_col)
+        self.W = self.init(self.W_shape)
+        self.params = [self.W]
+
+        self.regularizers = []
+        if self.W_regularizer:
+            self.W_regularizer.set_param(self.W)
+            self.regularizers.append(self.W_regularizer)
+
+        if self.initial_weights is not None:
+            self.set_weights(self.initial_weights)
+            del self.initial_weights
+
+    @property
+    def output_shape(self):
+        return (1, self.nb_channel, self.nb_row, self.nb_col)
+
+    def get_output(self, train=False):
+        return self.W
+
+    def get_config(self):
+        config = {'name': self.__class__.__name__,
+                  'nb_channel': self.nb_channel,
+                  'nb_row': self.nb_row,
+                  'nb_col': self.nb_col,
+                  'init': self.init.__name__,
+                  'W_regularizer': self.W_regularizer.get_config() if self.W_regularizer else None,
+                  'W_constraint': self.W_constraint.get_config() if self.W_constraint else None,
+                  'W_learning_rate_multiplier': self.W_learning_rate_multiplier,
+                 }
+        base_config = super(Input, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
 class Dense(Layer):
     '''Just your regular fully connected NN layer.
 
