@@ -481,11 +481,20 @@ class Sequential(Model, containers.Sequential):
             test_ins = [self.X_test, self.y, self.weights]
             predict_ins = [self.X_test]
 
-        self._train = K.function(train_ins, [train_loss], updates=updates)
-        self._train_with_acc = K.function(train_ins, [train_loss, train_accuracy], updates=updates)
-        self._predict = K.function(predict_ins, [self.y_test], updates=self.state_updates)
-        self._test = K.function(test_ins, [test_loss], updates=self.state_updates)
-        self._test_with_acc = K.function(test_ins, [test_loss, test_accuracy], updates=self.state_updates)
+        self._train = K.function(train_ins, [train_loss], updates=updates,
+                                 on_unused_input='warn')
+        self._train_with_acc = K.function(train_ins,
+                                          [train_loss, train_accuracy],
+                                          updates=updates,
+                                          on_unused_input='warn')
+        self._predict = K.function(predict_ins, [self.y_test],
+                                   updates=self.state_updates)
+        self._test = K.function(test_ins, [test_loss],
+                                updates=self.state_updates,
+                                on_unused_input='warn')
+        self._test_with_acc = K.function(test_ins, [test_loss, test_accuracy],
+                                         updates=self.state_updates,
+                                         on_unused_input='warn')
 
     def fit(self, X, y, batch_size=128, nb_epoch=100, verbose=1, callbacks=[],
             validation_split=0., validation_data=None, shuffle=True,
