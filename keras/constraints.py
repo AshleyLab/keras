@@ -70,8 +70,9 @@ def _simplex_projection(v, s=1):
     #    # best projection: itself!
     #    return v
     # else we will return the projection p
-    return K.ifelse(K.and_(K.equal(v.sum(), s), K.all(K.ge(v, 0))),
-                    v, p)
+    #return K.ifelse(K.and_(K.equal(v.sum(), s), K.all(K.ge(v, 0))),
+    #                v, p)
+    return K.cast(p, 'float32')
 
 
 def _filter_simplex_projection(W, s=1):
@@ -101,12 +102,21 @@ class PWMSimplex(Constraint):
     def __call__(self, p):
         return _filter_simplex_projection(p)
 
+
+class Simplex(Constraint):
+    def __call__(self, p):
+        original_shape = K.shape(p)
+        projection = _simplex_projection(K.flatten(p))
+        return K.reshape(projection, original_shape)
+
+
 identity = Constraint
 maxnorm = MaxNorm
 maxfrobeniusnorm = MaxFrobeniusNorm
 nonneg = NonNeg
 unitnorm = UnitNorm
 pwmsimplex = PWMSimplex
+simplex = Simplex
 
 from .utils.generic_utils import get_from_module
 def get(identifier, kwargs=None):
