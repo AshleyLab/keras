@@ -26,6 +26,21 @@ class MaxNorm(Constraint):
                 "m": self.m}
 
 
+class MaxFrobeniusNorm(Constraint):
+    def __init__(self, m=1):
+        self.m = m
+
+    def __call__(self, p):
+        norm = K.sqrt(K.sum(K.square(p)))
+        desired = K.clip(norm, 0, self.m)
+        p = p * (desired / (1e-7 + norm))
+        return p
+
+    def get_config(self):
+        return {"name": self.__class__.__name__,
+                "m": self.m}
+
+
 class NonNeg(Constraint):
     def __call__(self, p):
         p *= K.cast(p >= 0., K.floatx())
@@ -88,6 +103,7 @@ class PWMSimplex(Constraint):
 
 identity = Constraint
 maxnorm = MaxNorm
+maxfrobeniusnorm = MaxFrobeniusNorm
 nonneg = NonNeg
 unitnorm = UnitNorm
 pwmsimplex = PWMSimplex
