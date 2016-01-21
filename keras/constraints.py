@@ -104,9 +104,12 @@ class PWMSimplex(Constraint):
 
 
 class Simplex(Constraint):
+    def __init__(self, m=1):
+        self.m = m
+
     def __call__(self, p):
         original_shape = K.shape(p)
-        projection = _simplex_projection(K.flatten(p))
+        projection = _simplex_projection(K.flatten(p), self.m)
         return K.reshape(projection, original_shape)
 
 
