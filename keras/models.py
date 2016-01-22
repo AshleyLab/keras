@@ -156,6 +156,16 @@ def model_from_config(config, custom_objects={}):
     if 'optimizer' in config:
         # if it has an optimizer, the model is assumed to be compiled
         loss = config.get('loss')
+        if (loss=="weighted_binary_crossentropy"):
+            print("Warning: I (Av) haven't yet put in the logic for loading"
+                  "the weighted_binary_crossentropy loss from a yaml file."
+                  "so I am going to replace it with a 'binary_crossentropy'"
+                  "which should be fine as long as you are not planning to"
+                  "fine-tune this model further. If you are planning to fine"
+                  "tune it further then I think you need to call model_from_config"
+                  "with your the weighted_binary_crossentropy loss function put in"
+                  "as an entry for custom_objects");
+            loss="binary_crossentropy";
 
         # if a custom loss function is passed replace it in loss
         if model_name == 'Graph':
@@ -171,7 +181,6 @@ def model_from_config(config, custom_objects={}):
         optimizer_params = dict([(k, v) for k, v in config.get('optimizer').items()])
         optimizer_name = optimizer_params.pop('name')
         optimizer = optimizers.get(optimizer_name, optimizer_params)
-
         if model_name == 'Sequential':
             model.compile(loss=loss, optimizer=optimizer,
                           class_mode=class_mode)
