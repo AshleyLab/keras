@@ -26,12 +26,13 @@ def nMers(shape, n, name=None):
   
     weights = np.zeros(shape); 
     #compute n^4 + (n-1)^4 + ... 
-    numChannels = sum([x^4 for x in range(1,n+1)]);
+    numChannels = sum([4**x for x in range(1,n+1)]);
     assert shape[0]==numChannels, "must supply numFilters="+str(numChannels)+" for n="+str(n)+" (you gave "+str(shape[0])+")";
     #get all possible 4-mers
     filterIdx=0;
     for k in range(1,n+1):
-        allKmers = itertools.permutations([0,1,2,3],k);
+        allKmers = itertools.product([0,1,2,3],repeat=k);
+        #print("initialising",len(list(allKmers)),"kmers of len",k);
         for kmerArr in allKmers:
             #kmerArr is an array of length k where entries are 0/1/2/3 representing the bases
             offsetOfKmerFromStart = int((n-k)/2); 
@@ -39,8 +40,9 @@ def nMers(shape, n, name=None):
             weights[filterIdx
                     ,0       
                     ,kmerArr #A/C/G/T
-                    ,range(offsetOfKmerFromStart,offsetOfKmerFromStart+k)] = 1.0
+                    ,range(offsetOfKmerFromStart,offsetOfKmerFromStart+k)] = 1.0/k
             filterIdx+=1; 
+    assert filterIdx==numChannels,str(filterIdx)
     return K.variable(weights,name=name);
 
 def threeMers(shape, name=None):
