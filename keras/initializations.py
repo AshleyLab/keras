@@ -31,16 +31,17 @@ def nMers(shape, n, name=None):
     #get all possible 4-mers
     filterIdx=0;
     for k in range(1,n+1):
-        allKmers = itertools.product([0,1,2,3],repeat=k);
+        allKmers = list(itertools.product([0,1,2,3],repeat=k));
+        offsetOfKmerFromStart = int((n-k)/2); 
+        weights[filterIdx:filterIdx+len(allKmers),0,:,offsetOfKmerFromStart:offsetOfKmerFromStart+k] = -(k-1);
         #print("initialising",len(list(allKmers)),"kmers of len",k);
         for kmerArr in allKmers:
             #kmerArr is an array of length k where entries are 0/1/2/3 representing the bases
-            offsetOfKmerFromStart = int((n-k)/2); 
             #do fancy indexing into weights to set the appropriate positions to 1
             weights[filterIdx
                     ,0       
                     ,kmerArr #A/C/G/T
-                    ,range(offsetOfKmerFromStart,offsetOfKmerFromStart+k)] = 1.0/k
+                    ,range(offsetOfKmerFromStart,offsetOfKmerFromStart+k)] = 1.0
             filterIdx+=1; 
     assert filterIdx==numChannels,str(filterIdx)
     return K.variable(weights,name=name);
