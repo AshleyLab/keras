@@ -57,33 +57,24 @@ class BatchNormalization(Layer):
 
         self.gamma = self.init(shape)
         self.beta = K.zeros(shape)
+        self.trainable_weights = [self.gamma, self.beta]
 
-        self.params = [self.gamma, self.beta]
         self.running_mean = K.zeros(shape)
         self.running_std = K.ones(shape)
+        self.non_trainable_weights = [self.running_mean, self.running_std]
 
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
             del self.initial_weights
 
-    def get_weights(self):
-        super_weights = super(BatchNormalization, self).get_weights()
-        return super_weights + [K.get_value(self.running_mean),
-                                K.get_value(self.running_std)]
-
-    def set_weights(self, weights):
-        K.set_value(self.running_mean, weights[-2])
-        K.set_value(self.running_std, weights[-1])
-        super(BatchNormalization, self).set_weights(weights[:-2])
-
     def get_output(self, train):
         X = self.get_input(train)
         if self.mode == 0:
             input_shape = self.input_shape
-            reduction_axes = range(len(input_shape))
+            reduction_axes = list(range(len(input_shape)))
+            del reduction_axes[self.axis]
             broadcast_shape = [1] * len(input_shape)
             broadcast_shape[self.axis] = input_shape[self.axis]
-            del reduction_axes[self.axis]
             if train:
                 m = K.mean(X, axis=reduction_axes)
                 brodcast_m = K.reshape(m, broadcast_shape)
@@ -112,6 +103,7 @@ class BatchNormalization(Layer):
         config = {"name": self.__class__.__name__,
                   "epsilon": self.epsilon,
                   "mode": self.mode,
+                  "axis": self.axis,
                   "momentum": self.momentum}
         base_config = super(BatchNormalization, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
