@@ -1101,7 +1101,7 @@ class Sequential(Model, containers.Sequential):
             self.trainLayersIndividually=0 
             print("finished training and stacking layers!") 
             return 
-        #self.layers[currentTrainableLayer].trainable=False 
+        #self.layers[currentTrainableLayer].trainable=False #we shouldn't freeze layers, better to keep training in the context of the whole model 
         self.layers[nextTrainableLayer].trainable=True 
         #recompile the model using the current settings for loss and optimizer 
         self.compile(optimizer=self.optimizer,loss=self.loss,class_mode=self.class_mode,sample_weight_mode=self.sample_weight_mode,trainLayersIndividually=1) 
