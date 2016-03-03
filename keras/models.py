@@ -448,7 +448,7 @@ class Sequential(Model, containers.Sequential):
     '''
     def compile(self, optimizer, loss,
                 class_mode="categorical",
-                sample_weight_mode=None):
+                sample_weight_mode=None,trainLayersIndividually=0):
         '''Configure the learning process.
 
         # Arguments
@@ -463,6 +463,7 @@ class Sequential(Model, containers.Sequential):
                 sample weighting (2D weights), set this to "temporal".
                 "None" defaults to sample-wise weights (1D).
         '''
+        self.trainLayersIndividually=trainLayersIndividually
         self.optimizer = optimizers.get(optimizer)
         self.sample_weight_mode = sample_weight_mode
 
@@ -1085,7 +1086,54 @@ class Sequential(Model, containers.Sequential):
         _stop.set()
         callbacks.on_train_end()
         return history
+    #########################################
+    #@annashch: helper functions for freezing and stacking layers 
 
+    #freeze the current trainable layer, make the next layer in the model trainable 
+    #once all layers have been trained, the trainLayersIndividually property is set to 0 
+    def freezeAndStack(self): 
+        currentTrainableLayer=self.getCurrentTrainableLayer() 
+        if currentTrainableLayer==None: #nothing to do, return 
+            print("currentTrainableLayer is None, nothing to do") 
+            return 
+        nextTrainableLayer=self.getNextTrainableLayer(currentTrainableLayer) 
+        if nextTrainableLayer==None: #we're done! set freezeAndStack to 0 to indicate that no more layers remain to be trained 
+            self.trainLayersIndividually=0 
+            print("finished training and stacking layers!") 
+            return 
+        self.layers[currentTrainableLayer].trainable=False 
+        self.layers[nextTrainableLayer].trainable=True 
+        #recompile the model using the current settings for loss and optimizer 
+        self.compile(optimizer=self.optimizer,loss=self.loss,class_mode=self.class_mode,sample_weight_mode=self.sample_weight_mode,trainLayersIndividually=1) 
+        print("model successfully recompiled; training on layer # "+str(nextTrainableLayer)+" , which is:"+str(self.layers[nextTrainableLayer]))
+        
+   #if the "trainLayersIndividually" property is set to 1, this returns the current trainable layer index
+   #if the "trainLayersIndividually" property is set to 0, this returns None  
+    def getCurrentTrainableLayer(self): 
+        if self.trainLayersIndividually==0: 
+            return None 
+        else: 
+            currentTrainableLayer=None 
+            numlayers=len(self.layers) 
+            for i in range(numlayers): 
+                if self.layers[i].trainable==True: 
+                    currentTrainableLayer=i 
+                    break 
+            return currentTrainableLayer
+                    
+    #if the "trainLayersIndividually" property is set to 1, this returns the next trainable layer index, or None if the final layer has been trained 
+    #if the "trainLayersIndividually" property is set to 0, this returns None  
+    def getNextTrainableLayer(self,currentTrainableLayer): 
+        if self.trainLayersIndividually==0: 
+            return None 
+        else: 
+            numlayers=len(self.layers) 
+            nextTrainableLayer=None 
+            for j in range(currentTrainableLayer+1,numlayers): 
+                if self.layers[j].count_params()>0: 
+                    nextTrainableLayer=j 
+                    break 
+            return nextTrainableLayer 
 
 class Graph(Model, containers.Graph):
     '''Arbitrary connection graph.
