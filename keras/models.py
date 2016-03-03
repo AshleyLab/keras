@@ -1115,7 +1115,7 @@ class Sequential(Model, containers.Sequential):
         else: 
             currentTrainableLayer=None 
             numlayers=len(self.layers) 
-            for i in range(numlayers): 
+            for i in range(numlayers-1,-1,-1): 
                 if self.layers[i].trainable==True: 
                     currentTrainableLayer=i 
                     break 
