@@ -3,10 +3,22 @@ import numpy as np
 from . import backend as K
 
 
+
+
 def mean_squared_error(y_true, y_pred):
     return K.mean(K.square(y_pred - y_true), axis=-1)
 
-
+#This may or may not be a useful function:
+#does it make sense to have task weights for regression? 
+def get_weighted_mean_squared_error(w0_weights,w1_weights,thresh=0.5): 
+    w0_weights=np.array(w0_weights); 
+    w1_weights=np.array(w1_weights);
+    y_true_binarized=(y_true<thresh).astype(int) 
+    def weighted_mean_squared_error(y_true_binarized,y_pred): 
+        weightVectors = y_true_binarized*w1_weights[None,:] + (1-y_true_binarized)*w0_weights[None,:] 
+        return K.mean(K.square(y_pred-y_true)*weightVectors, axis=-1);
+    return weighted_mean_squared_error; 
+        
 def mean_absolute_error(y_true, y_pred):
     return K.mean(K.abs(y_pred - y_true), axis=-1)
 
