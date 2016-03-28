@@ -150,8 +150,8 @@ def prod(x, axis=None, keepdims=False):
 
 
 def mean(x, axis=None, keepdims=False):
-    return T.mean(x, axis=axis, keepdims=keepdims
-                    ,dtype=x.dtype)
+    return T.mean(x, axis=axis, keepdims=keepdims)
+#                    ,dtype=x.dtype)
 
 
 def std(x, axis=None, keepdims=False):
