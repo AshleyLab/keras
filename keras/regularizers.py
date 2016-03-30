@@ -17,9 +17,10 @@ class Regularizer(object):
 
 
 class WeightRegularizer(Regularizer):
-    def __init__(self, l1=0., l2=0.):
+    def __init__(self, l1=0., l2=0.,zr=0.):
         self.l1 = l1
         self.l2 = l2
+        self.zr=zr 
 
     def set_param(self, p):
         self.p = p
@@ -27,12 +28,14 @@ class WeightRegularizer(Regularizer):
     def __call__(self, loss):
         loss += K.sum(K.abs(self.p)) * self.l1
         loss += K.sum(K.square(self.p)) * self.l2
+        loss += zero_rows_penalty(self.p) * self.zr 
         return loss
 
     def get_config(self):
         return {"name": self.__class__.__name__,
                 "l1": self.l1,
-                "l2": self.l2}
+                "l2": self.l2,
+                "zr": self.zr}
 
 
 class ActivityRegularizer(Regularizer):
@@ -53,6 +56,10 @@ class ActivityRegularizer(Regularizer):
         return {"name": self.__class__.__name__,
                 "l1": self.l1,
                 "l2": self.l2}
+
+def zero_rows_penalty(x): 
+    row_sums=K.sum(abs(x),axis=0)
+    return K.sum(K.log(1+row_sums))/x.shape[0] 
 
 
 def l1(l=0.01):
@@ -77,6 +84,8 @@ def activity_l2(l=0.01):
 
 def activity_l1l2(l1=0.01, l2=0.01):
     return ActivityRegularizer(l1=l1, l2=l2)
+
+
 
 identity = Regularizer
 
