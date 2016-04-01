@@ -1144,7 +1144,7 @@ class Graph(Model, containers.Graph):
 
     Inherits from `containers.Graph`.
     '''
-    def compile(self, optimizer, loss, sample_weight_modes={}):
+    def compile(self, optimizer, loss, sample_weight_modes={},trainLayersIndividually=0):
         '''Configure the learning process.
 
         # Arguments
@@ -1164,6 +1164,7 @@ class Graph(Model, containers.Graph):
         assert type(sample_weight_modes) is dict, 'The "sample_weight_modes" argument should be a dictionary.'
 
         self.sample_weight_modes = sample_weight_modes
+        self.trainLayersIndividually=trainLayersIndividually 
         ys = []
         ys_train = []
         ys_test = []
@@ -1601,3 +1602,8 @@ class Graph(Model, containers.Graph):
         _stop.set()
         callbacks.on_train_end()
         return history
+
+    def freezeAndStack(self): 
+        self.trainLayersIndividually=0 
+        return 
+
