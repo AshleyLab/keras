@@ -33,6 +33,11 @@ class Layer(object):
             (e.g. `(32, 100)` for a batch of 32 100-dimensional inputs).
     '''
     def __init__(self, **kwargs):
+        if not hasattr(self, 'trainable_weights'):
+            self.trainable_weights = []
+        if not hasattr(self, 'non_trainable_weights'):
+            self.non_trainable_weights = []
+
         allowed_kwargs = {'input_shape',
                           'trainable',
                           'batch_input_shape',
@@ -51,18 +56,16 @@ class Layer(object):
                           " (this message comes from layers/core.py)");
                 else:
                     raise RuntimeError('Keyword argument not understood: ' + kwarg)
-        if 'input_shape' in kwargs:
-            self.set_input_shape((None,) + tuple(kwargs['input_shape']))
         if 'batch_input_shape' in kwargs:
             self.set_input_shape(tuple(kwargs['batch_input_shape']))
+        elif 'input_shape' in kwargs:
+            self.set_input_shape((None,) + tuple(kwargs['input_shape']))
         self.trainable = True
         if 'trainable' in kwargs:
             self.trainable = kwargs['trainable']
         self.name = self.__class__.__name__.lower()
         if 'name' in kwargs:
             self.name = kwargs['name']
-        if not hasattr(self, 'params'):
-            self.params = []
         self.cache_enabled = True
         if 'cache_enabled' in kwargs:
             self.cache_enabled = kwargs['cache_enabled']
@@ -98,7 +101,7 @@ class Layer(object):
         self.get_input = tmp_input
         return Y
 
-    def set_previous(self, layer, connection_map={}):
+    def set_previous(self, layer):
         '''Connect a layer to its parent in the computational graph.
         '''
         assert self.nb_input == layer.nb_output == 1, 'Cannot connect layers: input count and output count should be 1.'
@@ -189,7 +192,7 @@ class Layer(object):
             return self.input
         else:
             raise Exception('Layer is not connected' +
-                            'and is not an input layer.')
+                            ' and is not an input layer.')
 
     def supports_masked_input(self):
         '''Whether or not this layer respects the output mask of its previous
@@ -232,10 +235,11 @@ class Layer(object):
             of the layer (i.e. it should match the
             output of `get_weights`).
         '''
-        assert len(self.params) == len(weights), ('Provided weight array does not match layer weights (' +
-                                                  str(len(self.params)) + ' layer params vs. ' +
-                                                  str(len(weights)) + ' provided weights)')
-        for p, w in zip(self.params, weights):
+        params = self.trainable_weights + self.non_trainable_weights
+        assert len(params) == len(weights), ('Provided weight array does not match layer weights (' +
+                                             str(len(params)) + ' layer params vs. ' +
+                                             str(len(weights)) + ' provided weights)')
+        for p, w in zip(params, weights):
             if K.get_value(p).shape != w.shape:
                 raise Exception('Layer shape %s not compatible with weight shape %s.' % (K.get_value(p).shape, w.shape))
             K.set_value(p, w)
@@ -244,8 +248,9 @@ class Layer(object):
         '''Return the weights of the layer,
         as a list of numpy arrays.
         '''
+        params = self.trainable_weights + self.non_trainable_weights
         weights = []
-        for p in self.params:
+        for p in params:
             weights.append(K.get_value(p))
         return weights
 
@@ -254,7 +259,11 @@ class Layer(object):
         '''
         config = {'name': self.__class__.__name__}
         if hasattr(self, '_input_shape'):
-            config['input_shape'] = self._input_shape[1:]
+            input_shape = self._input_shape
+            if input_shape[0]:
+                config['batch_input_shape'] = input_shape[:]
+            else:
+                config['input_shape'] = input_shape[1:]
         if hasattr(self, '_trainable'):
             config['trainable'] = self._trainable
         config['cache_enabled'] = self.cache_enabled
@@ -271,7 +280,6 @@ class Layer(object):
         else:
             regularizers = []
 
-        
         if hasattr(self, 'learning_rate_multipliers'):
             for lmul in self.learning_rate_multipliers:
                 if (lmul is not None):
@@ -279,29 +287,29 @@ class Layer(object):
                 else:
                     lmuls.append(1.0)
         else:
-            lmuls = [1.0 for p in self.params]
+            lmuls = [1.0 for p in self.trainable_weights]
 
-        if hasattr(self, 'constraints') and len(self.constraints) == len(self.params):
+        if hasattr(self, 'constraints') and len(self.constraints) == len(self.trainable_weights):
             for c in self.constraints:
                 if c:
                     consts.append(c)
                 else:
                     consts.append(constraints.identity())
         elif hasattr(self, 'constraint') and self.constraint:
-            consts += [self.constraint for _ in range(len(self.params))]
+            consts += [self.constraint for _ in range(len(self.trainable_weights))]
         else:
-            consts += [constraints.identity() for _ in range(len(self.params))]
+            consts += [constraints.identity() for _ in range(len(self.trainable_weights))]
 
         if hasattr(self, 'updates') and self.updates:
             updates += self.updates
 
-        return self.params, regularizers, consts, lmuls, updates
+        return self.trainable_weights, regularizers, consts, lmuls, updates
 
     def count_params(self):
         '''Return the total number of floats (or ints)
         composing the weights of the layer.
         '''
-        return sum([K.count_params(p) for p in self.params])
+        return sum([K.count_params(p) for p in self.trainable_weights])
 
 
 class MaskedLayer(Layer):
@@ -340,71 +348,21 @@ class Masking(MaskedLayer):
     def __init__(self, mask_value=0., **kwargs):
         super(Masking, self).__init__(**kwargs)
         self.mask_value = mask_value
-        self.input = K.placeholder(ndim=3)
+        if (not hasattr(self, 'input')):
+            self.input = K.placeholder(ndim=3)
 
     def get_output_mask(self, train=False):
-        if K._BACKEND == 'tensorflow':
-            raise Exception('Masking is Theano-only for the time being.')
         X = self.get_input(train)
-        return K.any(K.ones_like(X) * (1. - K.equal(X, self.mask_value)),
-                     axis=-1)
+        return K.any(K.not_equal(X, self.mask_value), axis=-1)
 
     def get_output(self, train=False):
         X = self.get_input(train)
-        return X * K.any((1. - K.equal(X, self.mask_value)),
-                         axis=-1, keepdims=True)
+        return X * K.cast(K.any(K.not_equal(X, self.mask_value), axis=-1, keepdims=True), K.floatx())
 
     def get_config(self):
         config = {'name': self.__class__.__name__,
                   'mask_value': self.mask_value}
         base_config = super(Masking, self).get_config()
-        return dict(list(base_config.items()) + list(config.items()))
-
-
-class TimeDistributedMerge(Layer):
-    '''Sum/multiply/average over the outputs of a TimeDistributed layer.
-
-    # Input shape
-        3D tensor with shape: `(samples, steps, features)`.
-
-    # Output shape
-        2D tensor with shape: `(samples, features)`.
-
-    # Arguments
-        mode: one of {'sum', 'mul', 'ave'}
-    '''
-    input_ndim = 3
-
-    def __init__(self, mode='sum', **kwargs):
-        super(TimeDistributedMerge, self).__init__(**kwargs)
-        self.mode = mode
-        self.params = []
-        self.regularizers = []
-        self.constraints = []
-        self.updates = []
-
-    @property
-    def output_shape(self):
-        return (None, self.input_shape[2])
-
-    def get_output(self, train=False):
-        X = self.get_input(train)
-        if self.mode == 'ave':
-            s = K.mean(X, axis=1)
-            return s
-        if self.mode == 'sum':
-            s = K.sum(X, axis=1)
-            return s
-        elif self.mode == 'mul':
-            s = K.prod(X, axis=1)
-            return s
-        else:
-            raise Exception('Unknown merge mode')
-
-    def get_config(self):
-        config = {'name': self.__class__.__name__,
-                  'mode': self.mode}
-        base_config = super(TimeDistributedMerge, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
@@ -427,24 +385,24 @@ class Merge(Layer):
     # Examples
 
     ```python
-    left = Sequential()
-    left.add(Dense(50, input_shape=(784,)))
-    left.add(Activation('relu'))
+        left = Sequential()
+        left.add(Dense(50, input_shape=(784,)))
+        left.add(Activation('relu'))
 
-    right = Sequential()
-    right.add(Dense(50, input_shape=(784,)))
-    right.add(Activation('relu'))
+        right = Sequential()
+        right.add(Dense(50, input_shape=(784,)))
+        right.add(Activation('relu'))
 
-    model = Sequential()
-    model.add(Merge([left, right], mode='sum'))
+        model = Sequential()
+        model.add(Merge([left, right], mode='sum'))
 
-    model.add(Dense(10))
-    model.add(Activation('softmax'))
+        model.add(Dense(10))
+        model.add(Activation('softmax'))
 
-    model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
+        model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
 
-    model.fit([X_train, X_train], Y_train, batch_size=128, nb_epoch=20,
-              validation_data=([X_test, X_test], Y_test))
+        model.fit([X_train, X_train], Y_train, batch_size=128, nb_epoch=20,
+                  validation_data=([X_test, X_test], Y_test))
     ```
     '''
     def __init__(self, layers, mode='sum', concat_axis=-1, dot_axes=-1):
@@ -503,7 +461,7 @@ class Merge(Layer):
         self.concat_axis = concat_axis
         self.dot_axes = dot_axes
         self.layers = layers
-        self.params = []
+        self.trainable_weights = []
         self.regularizers = []
         self.constraints = []
         self.learning_rate_multipliers = []
@@ -514,8 +472,8 @@ class Merge(Layer):
             self.updates += updates
             # params and constraints have the same size
             for p, c, lmul in zip(params, consts, lmuls):
-                if p not in self.params:
-                    self.params.append(p)
+                if p not in self.trainable_weights:
+                    self.trainable_weights.append(p)
                     self.constraints.append(c)
                     self.learning_rate_multipliers.append(lmul)
         super(Merge, self).__init__()
@@ -550,7 +508,7 @@ class Merge(Layer):
             return (input_shapes[0][0], 1)
 
     def get_params(self):
-        return self.params, self.regularizers, self.constraints,\
+        return self.trainable_weights, self.regularizers, self.constraints,\
                self.learning_rate_multipliers, self.updates
 
     def get_output(self, train=False):
@@ -568,10 +526,11 @@ class Merge(Layer):
             inputs = OrderedDict()
             for i in range(len(self.layers)):
                 X = self.layers[i].get_output(train)
-                if X.name is None:
+                name = getattr(self.layers[i], 'name', None)
+                if name is None:
                     raise ValueError('merge_mode="join" only works with named inputs.')
                 else:
-                    inputs[X.name] = X
+                    inputs[name] = X
             return inputs
         elif self.mode == 'mul':
             s = self.layers[0].get_output(train)
@@ -630,7 +589,7 @@ class Merge(Layer):
 
     def set_weights(self, weights):
         for i in range(len(self.layers)):
-            nb_param = len(self.layers[i].params)
+            nb_param = len(self.layers[i].trainable_weights)
             self.layers[i].set_weights(weights[:nb_param])
             weights = weights[nb_param:]
 
@@ -641,6 +600,53 @@ class Merge(Layer):
                   'concat_axis': self.concat_axis,
                   'dot_axes': self.dot_axes}
         base_config = super(Merge, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
+class TimeDistributedMerge(Layer):
+    '''Sum/multiply/average over the outputs of a TimeDistributed layer.
+
+    # Input shape
+        3D tensor with shape: `(samples, steps, features)`.
+
+    # Output shape
+        2D tensor with shape: `(samples, features)`.
+
+    # Arguments
+        mode: one of {'sum', 'mul', 'ave'}
+    '''
+    input_ndim = 3
+
+    def __init__(self, mode='sum', **kwargs):
+        super(TimeDistributedMerge, self).__init__(**kwargs)
+        self.mode = mode
+        self.trainable_weights = []
+        self.regularizers = []
+        self.constraints = []
+        self.updates = []
+
+    @property
+    def output_shape(self):
+        return (None, self.input_shape[2])
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+        if self.mode == 'ave':
+            s = K.mean(X, axis=1)
+            return s
+        if self.mode == 'sum':
+            s = K.sum(X, axis=1)
+            return s
+        elif self.mode == 'mul':
+            s = K.prod(X, axis=1)
+            return s
+        else:
+            raise Exception('Unknown merge mode')
+
+    def get_config(self):
+        config = {'name': self.__class__.__name__,
+                  'mode': self.mode}
+        base_config = super(TimeDistributedMerge, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
@@ -967,7 +973,7 @@ class Dense(Layer):
         self.W = self.init((input_dim, self.output_dim))
         self.b = K.zeros((self.output_dim,))
 
-        self.params = [self.W, self.b]
+        self.trainable_weights = [self.W, self.b]
 
         self.regularizers = []
         if self.W_regularizer:
@@ -1010,42 +1016,6 @@ class Dense(Layer):
                   'input_dim': self.input_dim}
         base_config = super(Dense, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
-
-class ActivityRegularization(Layer):
-    '''Layer that passes through its input unchanged, but applies an update
-    to the cost function based on the activity.
-
-    # Input shape
-        Arbitrary. Use the keyword argument `input_shape`
-        (tuple of integers, does not include the samples axis)
-        when using this layer as the first layer in a model.
-
-    # Output shape
-        Same shape as input.
-
-    # Arguments
-        l1: L1 regularization factor.
-        l2: L2 regularization factor.
-    '''
-    def __init__(self, l1=0., l2=0., **kwargs):
-        super(ActivityRegularization, self).__init__(**kwargs)
-        self.l1 = l1
-        self.l2 = l2
-
-        activity_regularizer = ActivityRegularizer(l1=l1, l2=l2)
-        activity_regularizer.set_layer(self)
-        self.regularizers = [activity_regularizer]
-
-    def get_output(self, train=False):
-        return self.get_input(train)
-
-    def get_config(self):
-        config = {'name': self.__class__.__name__,
-                  'l1': self.l1,
-                  'l2': self.l2}
-        base_config = super(ActivityRegularization, self).get_config()
-        return dict(list(base_config.items()) + list(config.items()))
-
 
 class TimeDistributedDense(MaskedLayer):
     '''Apply a same Dense layer for each dimension[1] (time_dimension) input.
@@ -1124,7 +1094,7 @@ class TimeDistributedDense(MaskedLayer):
         self.W = self.init((input_dim, self.output_dim))
         self.b = K.zeros((self.output_dim,))
 
-        self.params = [self.W, self.b]
+        self.trainable_weights = [self.W, self.b]
         self.regularizers = []
 
         if self.W_regularizer:
@@ -1155,7 +1125,9 @@ class TimeDistributedDense(MaskedLayer):
             output = K.dot(x, self.W) + self.b
             return output, []
 
-        last_output, outputs, states = K.rnn(step, X, [], masking=False)
+        last_output, outputs, states = K.rnn(step, X,
+                                             initial_states=[],
+                                             mask=None)
         outputs = self.activation(outputs)
         return outputs
 
@@ -1174,6 +1146,41 @@ class TimeDistributedDense(MaskedLayer):
                   'input_dim': self.input_dim,
                   'input_length': self.input_length}
         base_config = super(TimeDistributedDense, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+class ActivityRegularization(Layer):
+    '''Layer that passes through its input unchanged, but applies an update
+    to the cost function based on the activity.
+
+    # Input shape
+        Arbitrary. Use the keyword argument `input_shape`
+        (tuple of integers, does not include the samples axis)
+        when using this layer as the first layer in a model.
+
+    # Output shape
+        Same shape as input.
+
+    # Arguments
+        l1: L1 regularization factor.
+        l2: L2 regularization factor.
+    '''
+    def __init__(self, l1=0., l2=0., **kwargs):
+        super(ActivityRegularization, self).__init__(**kwargs)
+        self.l1 = l1
+        self.l2 = l2
+
+        activity_regularizer = ActivityRegularizer(l1=l1, l2=l2)
+        activity_regularizer.set_layer(self)
+        self.regularizers = [activity_regularizer]
+
+    def get_output(self, train=False):
+        return self.get_input(train)
+
+    def get_config(self):
+        config = {'name': self.__class__.__name__,
+                  'l1': self.l1,
+                  'l2': self.l2}
+        base_config = super(ActivityRegularization, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 class AutoEncoder(Layer):
@@ -1197,50 +1204,84 @@ class AutoEncoder(Layer):
 
     # Examples
     ```python
-    from keras.layers import containers
+        from keras.layers import containers, AutoEncoder, Dense
+        from keras import models
 
-    # input shape: (nb_samples, 32)
-    encoder = containers.Sequential([Dense(16, input_dim=32), Dense(8)])
-    decoder = containers.Sequential([Dense(16, input_dim=8), Dense(32)])
+        # input shape: (nb_samples, 32)
+        encoder = containers.Sequential([Dense(16, input_dim=32), Dense(8)])
+        decoder = containers.Sequential([Dense(16, input_dim=8), Dense(32)])
 
-    autoencoder = Sequential()
-    autoencoder.add(AutoEncoder(encoder=encoder, decoder=decoder,
-                                output_reconstruction=False))
+        autoencoder = AutoEncoder(encoder=encoder, decoder=decoder, output_reconstruction=True)
+        model = models.Sequential()
+        model.add(autoencoder)
+
+        # training the autoencoder:
+        model.compile(optimizer='sgd', loss='mse')
+        model.fit(X_train, X_train, nb_epoch=10)
+
+        # predicting compressed representations of inputs:
+        autoencoder.output_reconstruction = False  # the model has to be recompiled after modifying this property
+        model.compile(optimizer='sgd', loss='mse')
+        representations = model.predict(X_test)
+
+        # the model is still trainable, although it now expects compressed representations as targets:
+        model.fit(X_test, representations, nb_epoch=1)  # in this case the loss will be 0, so it's useless
+
+        # to keep training against the original inputs, just switch back output_reconstruction to True:
+        autoencoder.output_reconstruction = True
+        model.compile(optimizer='sgd', loss='mse')
+        model.fit(X_train, X_train, nb_epoch=10)
     ```
     '''
     def __init__(self, encoder, decoder, output_reconstruction=True,
                  weights=None, **kwargs):
         super(AutoEncoder, self).__init__(**kwargs)
 
-        self.output_reconstruction = output_reconstruction
+        self._output_reconstruction = output_reconstruction
         self.encoder = encoder
         self.decoder = decoder
 
-        self.decoder.set_previous(self.encoder)
+        if output_reconstruction:
+            self.decoder.set_previous(self.encoder)
 
         if weights is not None:
             self.set_weights(weights)
 
+        super(AutoEncoder, self).__init__(**kwargs)
+        self.build()
+
+    @property
+    def output_reconstruction(self):
+        return self._output_reconstruction
+
+    @output_reconstruction.setter
+    def output_reconstruction(self, value):
+        self._output_reconstruction = value
+        self.build()
+
     def build(self):
-        self.params = []
+        self.trainable_weights = []
         self.regularizers = []
         self.constraints = []
         self.learning_rate_multipliers = []
         self.updates = []
-        for layer in [self.encoder, self.decoder]:
+        if self.output_reconstruction:
+            layers = [self.encoder, self.decoder]
+        else:
+            layers = [self.encoder]
+        for layer in layers:
             params, regularizers, constraints,\
             learning_rate_multipliers, updates = layer.get_params()
             self.regularizers += regularizers
             self.updates += updates
             for p, c, lmul in zip(params, constraints, learning_rate_multipliers):
-                if p not in self.params:
-                    self.params.append(p)
+                if p not in self.trainable_weights:
+                    self.trainable_weights.append(p)
                     self.constraints.append(c)
                     self.learning_rate_multipliers.append(lmul)
 
-    def set_previous(self, node, connection_map={}):
-        self.encoder.set_previous(node, connection_map)
-        super(AutoEncoder, self).set_previous(node, connection_map)
+    def set_previous(self, node):
+        self.encoder.set_previous(node)
 
     def get_weights(self):
         weights = []
@@ -1249,7 +1290,7 @@ class AutoEncoder(Layer):
         return weights
 
     def set_weights(self, weights):
-        nb_param = len(self.encoder.params)
+        nb_param = len(self.encoder.trainable_weights)
         self.encoder.set_weights(weights[:nb_param])
         self.decoder.set_weights(weights[nb_param:])
 
@@ -1260,9 +1301,6 @@ class AutoEncoder(Layer):
     def input(self):
         return self.encoder.input
 
-    def _get_hidden(self, train=False):
-        return self.encoder.get_output(train)
-
     @property
     def input_shape(self):
         return self.encoder.input_shape
@@ -1270,15 +1308,15 @@ class AutoEncoder(Layer):
     @property
     def output_shape(self):
         if self.output_reconstruction:
-            return self.encoder.previous.output_shape
+            return self.decoder.output_shape
         else:
-            return self.decoder.previous.output_shape
+            return self.encoder.output_shape
 
     def get_output(self, train=False):
-        if not train and not self.output_reconstruction:
+        if self.output_reconstruction:
+            return self.decoder.get_output(train)
+        else:
             return self.encoder.get_output(train)
-
-        return self.decoder.get_output(train)
 
     def get_config(self):
         return {'name': self.__class__.__name__,
@@ -1349,7 +1387,7 @@ class MaxoutDense(Layer):
         self.W = self.init((self.nb_feature, input_dim, self.output_dim))
         self.b = K.zeros((self.nb_feature, self.output_dim))
 
-        self.params = [self.W, self.b]
+        self.trainable_weights = [self.W, self.b]
         self.regularizers = []
 
         if self.W_regularizer:
@@ -1477,7 +1515,7 @@ class LambdaMerge(Lambda):
             raise Exception('Please specify two or more input layers '
                             '(or containers) to merge.')
         self.layers = layers
-        self.params = []
+        self.trainable_weights = []
         self.regularizers = []
         self.constraints = []
         self.learning_rate_multipliers = []
@@ -1488,8 +1526,8 @@ class LambdaMerge(Lambda):
             self.updates += updates
             # params and constraints have the same size
             for p, c, lmul in zip(params, consts, learning_rate_multipliers):
-                if p not in self.params:
-                    self.params.append(p)
+                if p not in self.trainable_weights:
+                    self.trainable_weights.append(p)
                     self.constraints.append(c)
                     self.learning_rate_multipliers.append(lmul)
         py3 = sys.version_info[0] == 3
@@ -1524,7 +1562,7 @@ class LambdaMerge(Lambda):
             return tuple(shape)
 
     def get_params(self):
-        return self.params, self.regularizers, self.constraints,\
+        return self.trainable_weights, self.regularizers, self.constraints,\
                self.learning_rate_multipliers, self.updates
 
     def get_output(self, train=False):
@@ -1562,7 +1600,7 @@ class LambdaMerge(Lambda):
 
     def set_weights(self, weights):
         for i in range(len(self.layers)):
-            nb_param = len(self.layers[i].params)
+            nb_param = len(self.layers[i].trainable_weights) + len(self.non_trainable_weights)
             self.layers[i].set_weights(weights[:nb_param])
             weights = weights[nb_param:]
 
@@ -1611,7 +1649,7 @@ class Siamese(Layer):
         self.merge_mode = merge_mode
         self.concat_axis = concat_axis
         self.dot_axes = dot_axes
-        self.params = []
+        self.trainable_weights = []
         self.regularizers = []
         self.constraints = []
         self.learning_rate_multipliers = []
@@ -1625,8 +1663,8 @@ class Siamese(Layer):
             self.updates += updates
             # params and constraints have the same size
             for p, c, lmul in zip(params, consts, lmuls):
-                if p not in self.params:
-                    self.params.append(p)
+                if p not in self.trainable_weights:
+                    self.trainable_weights.append(p)
                     self.constraints.append(c)
                     self.learning_rate_multipliers.append(lmul)
         super(Siamese, self).__init__()
@@ -1665,7 +1703,7 @@ class Siamese(Layer):
             return (input_shapes[0][0], 1)
 
     def get_params(self):
-        return self.params, self.regularizers, self.constraints,\
+        return self.trainable_weights, self.regularizers, self.constraints,\
                     self.learning_rate_multipliers, self.updates
 
     def set_layer_input(self, head):
@@ -1689,10 +1727,11 @@ class Siamese(Layer):
         o = OrderedDict()
         for i in range(len(self.inputs)):
             X = self.get_output_at(i, train)
-            if X.name is None:
+            name = getattr(self.inputs[i], 'name', None)
+            if name is None:
                 raise ValueError('merge_mode="join" '
                                  'only works with named inputs.')
-            o[X.name] = X
+            o[name] = X
         return o
 
     def get_output_sum(self, train=False):
@@ -1786,12 +1825,12 @@ class Siamese(Layer):
         return weights
 
     def set_weights(self, weights):
-        nb_param = len(self.layer.params)
+        nb_param = len(self.layer.trainable_weights)
         self.layer.set_weights(weights[:nb_param])
         weights = weights[nb_param:]
         if self.merge_mode and not self.is_graph:
             for i in range(len(self.inputs)):
-                nb_param = len(self.inputs[i].params)
+                nb_param = len(self.inputs[i].trainable_weights)
                 self.inputs[i].set_weights(weights[:nb_param])
                 weights = weights[nb_param:]
 
@@ -1820,7 +1859,7 @@ class SiameseHead(Layer):
     '''
     def __init__(self, head):
         self.head = head
-        self.params = []
+        self.trainable_weights = []
         super(SiameseHead, self).__init__()
 
     def get_output(self, train=False):
@@ -1936,7 +1975,7 @@ class Highway(Layer):
         # initialize with a vector of values `transform_bias`
         self.b_carry = K.variable(np.ones((input_dim,)) * self.transform_bias)
 
-        self.params = [self.W, self.b, self.W_carry, self.b_carry]
+        self.trainable_weights = [self.W, self.b, self.W_carry, self.b_carry]
 
         self.regularizers = []
         if self.W_regularizer:
