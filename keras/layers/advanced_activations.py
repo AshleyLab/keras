@@ -250,15 +250,20 @@ class ChannelSoftmax(MaskedLayer):
         #it should have dims:
         #samples x channel x rows x cols
         X = self.get_input(train)
-        #zeros_like makes a tensor of the same
-        #dimensions as the input tensor
-        Out = K.zeros_like(X) 
-        #Yuck, I think the only way to do this
-        #may be using theano's "scan" to loop
-        #over each position and apply K.softmax
-        #at each position
-        #http://deeplearning.net/software/theano/tutorial/loop.html 
-        raise NotImplementedError();
+        sh = X.shape
+        # Store max of channel
+        maxOverChannels = T.max(X,axis=1)
+        # Transpose to get right dimension in dim 0
+        X = X.transpose((0,2,3,1))
+        # Reshape to 2D to use theano 
+        X = X.reshape((sh[0]*sh[2]*sh[3], sh[1]))
+        # Softmax
+        X = K.softmax(X)
+        # Reverse transpose/reshape
+        X = X.reshape((sh[0], sh[2], sh[3], sh[1]))
+        X = X.transpose((0,3,1,2))
+        Out = X*(maxOverChannels[:,None,:,:])
+        return Out
 
     def get_config(self):
         config = {"name": self.__class__.__name__}
