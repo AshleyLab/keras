@@ -222,3 +222,46 @@ class ThresholdedReLU(MaskedLayer):
                   "theta": self.theta}
         base_config = super(ThresholdedReLU, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
+
+class ChannelSoftmax(MaskedLayer):
+    '''Softmax applied across the channel axis
+
+    # Input shape
+        Should have dimensions of the output of a conv
+        layer. Use the keyword argument `input_shape`
+        (tuple of integers, does not include the samples axis)
+        when using this layer as the first layer in a model.
+
+    # Output shape
+        Same shape as the input.
+
+    # References
+        Custom Kundaje Lab layer, talk to
+        Avanti Shrikumar and/or Peyton Greenside
+    '''
+    def __init__(self, **kwargs):
+        #nothing going on here, __init__ could be
+        #ommitted
+        super(ChannelSoftmax, self).__init__(**kwargs)
+
+    def get_output(self, train):
+        #X is a symbolic tensor 
+        #it should have dims:
+        #samples x channel x rows x cols
+        X = self.get_input(train)
+        #zeros_like makes a tensor of the same
+        #dimensions as the input tensor
+        Out = K.zeros_like(X) 
+        #Yuck, I think the only way to do this
+        #may be using theano's "scan" to loop
+        #over each position and apply K.softmax
+        #at each position
+        #http://deeplearning.net/software/theano/tutorial/loop.html 
+        raise NotImplementedError();
+
+    def get_config(self):
+        config = {"name": self.__class__.__name__}
+        base_config = super(ChannelSoftmax, self).get_config()
+        #:-( why doesn't fchollet use ordered dicts?
+        return dict(list(base_config.items()) + list(config.items()))
