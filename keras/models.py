@@ -195,6 +195,9 @@ def model_from_config(config, custom_objects={}):
                   "with your the weighted_binary_crossentropy loss function put in"
                   "as an entry for custom_objects");
             loss="binary_crossentropy";
+        elif(loss=="taskweightedCrossentropyLoss"): 
+            loss="binary_crossentropy" 
+
 
         # if a custom loss function is passed replace it in loss
         if model_name == 'Graph':
