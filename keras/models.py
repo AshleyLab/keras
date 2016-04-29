@@ -198,6 +198,17 @@ def model_from_config(config, custom_objects={}):
         # if a custom loss function is passed replace it in loss
         if model_name == 'Graph':
             for l in loss:
+                if (loss[l] in ["weighted_binary_crossentropy",
+                             "taskweightedCrossentropyLoss"]):
+                    print("Warning: I (Av/Anna) haven't yet put in the logic for "
+                         "loading the "+loss[l]+" loss from a yaml file."
+                         "so I am going to replace it with a 'binary_crossentropy' "
+                         "which should be fine as long as you are not planning to "
+                         "fine-tune this model further. If you are planning to fine "
+                         "tune it further then I think you need to call "
+                         "model_from_config with your the weighted_binary_crossentropy"
+                         " loss function put in as an entry for custom_objects");
+                    loss[l]="binary_crossentropy";
                 for c in custom_objects:
                     if loss[l] == c:
                         loss[l] = custom_objects[c]
