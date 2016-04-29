@@ -46,32 +46,26 @@ def hinge(y_true, y_pred):
 def categorical_crossentropy(y_true, y_pred):
     '''Expects a binary class matrix instead of a vector of scalar classes.
     '''
-    return K.categorical_crossentropy(y_pred, y_true)
+    nonAmbig=(y_true > -.5) 
+    return K.categorical_crossentropy(y_pred[nonAmbig], y_true[nonAmbig])
 
 
 def binary_crossentropy(y_true, y_pred):
-    return K.mean(K.binary_crossentropy(y_pred, y_true), axis=-1)
+    nonAmbig=(y_true > -0.5) 
+    return K.mean(K.binary_crossentropy(y_pred[nonAmbig], y_true[nonAmbig]), axis=-1)
+
 
 def get_weighted_binary_crossentropy(w0_weights, w1_weights):
-    w0_weights=np.array(w0_weights);
-    w1_weights=np.array(w1_weights);
-    def weighted_binary_crossentropy(y_true, y_pred):
-        #remember: y_true is 2d; first axis is batch, second is tasks
-        weightVectors = y_true*w1_weights[None,:] + (1-y_true)*w0_weights[None,:]
-        return K.mean(K.binary_crossentropy(y_pred, y_true)*weightVectors, axis=-1);
-    return weighted_binary_crossentropy; 
-
-def get_taskweightedCrossentropyLoss(w0_weights,w1_weights):
     # Compute the task-weighted cross-entropy loss, where every task is weighted by 1 - (fraction of non-ambiguous examples that are positive)
     # In addition, weight everything with label -1 to 0
     w0_weights=np.array(w0_weights);
     w1_weights=np.array(w1_weights);
-    def taskweightedCrossentropyLoss(y_true,y_pred): 
+    def weighted_binary_crossentropy(y_true,y_pred): 
         weightsPerTaskRep = y_true*w1_weights[None,:] + (1-y_true)*w0_weights[None,:]
         nonAmbig = (y_true > -0.5)
         nonAmbigTimesWeightsPerTask = nonAmbig * weightsPerTaskRep
         return K.mean(K.binary_crossentropy(y_pred, y_true)*nonAmbigTimesWeightsPerTask, axis=-1);
-    return taskweightedCrossentropyLoss; 
+    return weighted_binary_crossentropy; 
 
 
 
