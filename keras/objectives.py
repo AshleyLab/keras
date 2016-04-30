@@ -3,7 +3,7 @@ import numpy as np
 from . import backend as K
 import theano.tensor as T 
 from theano import printing 
-
+import pdb 
 
 
 def mean_squared_error(y_true, y_pred):
@@ -46,12 +46,12 @@ def hinge(y_true, y_pred):
 def categorical_crossentropy(y_true, y_pred):
     '''Expects a binary class matrix instead of a vector of scalar classes.
     '''
-    nonAmbig=(y_true > -.5) 
+    nonAmbig=(y_true > -.5).nonzero() 
     return K.categorical_crossentropy(y_pred[nonAmbig], y_true[nonAmbig])
-
+    
 
 def binary_crossentropy(y_true, y_pred):
-    nonAmbig=(y_true > -0.5) 
+    nonAmbig=(y_true > -0.5).nonzero()  
     return K.mean(K.binary_crossentropy(y_pred[nonAmbig], y_true[nonAmbig]), axis=-1)
 
 
