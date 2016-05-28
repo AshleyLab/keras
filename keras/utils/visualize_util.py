@@ -150,5 +150,5 @@ def to_graph(model, **kwargs):
 
 
 def plot(model, to_file='model.png'):
-    graph = to_graph(model)
+    graph = to_graph(model,show_shape=True,recursive=True)
     graph.write_png(to_file)
