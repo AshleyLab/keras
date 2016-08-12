@@ -1,7 +1,6 @@
 from __future__ import absolute_import
 import numpy as np
 from . import backend as K
-import theano.tensor as T 
 from theano import printing 
 import pdb 
 

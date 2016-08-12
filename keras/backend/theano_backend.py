@@ -684,7 +684,7 @@ def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
 
 
 def pool2d(x, pool_size, strides=(1, 1), border_mode='valid',
-           dim_ordering='th', pool_mode='max'):
+           dim_ordering='th', pool_mode='max',tau=None):
     if border_mode == 'same':
         # TODO: add implementation for border_mode="same"
         raise Exception('border_mode="same" not supported with Theano.')
@@ -726,6 +726,7 @@ def pool2d(x, pool_size, strides=(1, 1), border_mode='valid',
                                               ignore_border=ignore_border,
                                               padding=padding,
                                               mode='average_exc_pad')
+        
     else:
         raise Exception('Invalid pooling mode: ' + str(pool_mode))
     
