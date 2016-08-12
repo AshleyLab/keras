@@ -485,20 +485,22 @@ class WeightedPooling1D(_Pooling1D):
         assert stride==pool_lengths, 'for weighted pooling, the pool stride must equal to the pool width' 
         
     def build(self): 
-        self.tau = self.init((1,))
+        self.tau = self.init((self.input_shape[1],))
         self.trainable_weights = [self.tau]
 
     def _pooling_function(self, inputs, pool_size, strides,
                           border_mode, dim_ordering):
+
         pool_axis=-1; 
         if dim_ordering=="tf": 
-            pool_axis=1; 
+            pool_axis=2; 
         #global pool (for now) 
-        t_denominator=K.sum(K.exp(inputs/self.tau),axis=pool_axis)
-        t_softmax=K.exp(inputs/self.tau)/t_denominator; 
-        t_weighted_average=K.sum(t_softmax*inputs,axis=pool_axis);  
-        output=t_weighted_average; 
+        t_denominator=K.sum(K.exp(inputs/self.tau[None,:,None]),axis=pool_axis)
+        t_softmax=K.exp(inputs/self.tau[None,:,None])/t_denominator[:,:,None]; 
+        t_weighted_average=K.sum(t_softmax*inputs,axis=pool_axis)        
+        output=t_weighted_average[:,:,None]; 
         return output
+
 
 class _Pooling2D(Layer):
     '''Abstract class for different pooling 2D layers.
@@ -673,19 +675,19 @@ class WeightedPooling2D(_Pooling2D):
         assert strides==pool_size, 'for weighted pooling, the pool stride must equal to the pool width (1) ' 
         #assert strides==1, 'for weighted global average pooling, set stride=1 and stride_widths =1'
     def build(self): 
-        self.tau = self.init((1,))
+        self.tau = self.init((self.input_shape[1],))
         self.trainable_weights = [self.tau]
     
     def _pooling_function(self, inputs, pool_size, strides,
                           border_mode, dim_ordering):
         pool_axis=-1; 
         if dim_ordering=="tf": 
-            pool_axis=1; 
+            pool_axis=2; 
         #global pool (for now) 
-        t_denominator=K.sum(K.exp(inputs/self.tau),axis=pool_axis)
-        t_softmax=K.exp(inputs/self.tau)/t_denominator; 
-        t_weighted_average=K.sum(t_softmax*inputs,axis=pool_axis)
-        output=t_weighted_average; 
+        t_denominator=K.sum(K.exp(inputs/self.tau[None,:,None,None]),axis=pool_axis)
+        t_softmax=K.exp(inputs/self.tau[None,:,None,None])/t_denominator[:,:,:,None]; 
+        t_weighted_average=K.sum(t_softmax*inputs,axis=pool_axis)        
+        output=t_weighted_average[:,:,:,None]; 
         return output
 
 
