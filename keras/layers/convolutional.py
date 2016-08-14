@@ -478,7 +478,7 @@ class WeightedPooling1D(_Pooling1D):
             Note: 'same' will only work with TensorFlow for the time being.
     '''
     def __init__(self, pool_length=2, stride=None,
-                 border_mode='valid', init="glorot_uniform", **kwargs):
+                 border_mode='valid', init="one", **kwargs):
         super(AveragePooling1D, self).__init__(pool_length, stride,
                                                border_mode, **kwargs)
         self.init = initializations.get(init)
@@ -667,7 +667,7 @@ class WeightedPooling2D(_Pooling2D):
         init: glorot_uniform (for temperature initialization) 
     '''
     def __init__(self, pool_size=(2, 2), strides=None, border_mode='valid',
-                 dim_ordering='th', init="glorot_uniform", **kwargs):
+                 dim_ordering='th', init="one", **kwargs):
 
         super(WeightedPooling2D, self).__init__(pool_size, strides, border_mode,
                                                dim_ordering, **kwargs)
