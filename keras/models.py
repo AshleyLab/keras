@@ -185,8 +185,7 @@ def model_from_config(config, custom_objects={}):
     if 'optimizer' in config:
         # if it has an optimizer, the model is assumed to be compiled
         loss = config.get('loss')
-        if (loss in ["weighted_binary_crossentropy",
-                     "taskweightedCrossentropyLoss"]):
+        if (loss in ["weighted_binary_crossentropy"]):
             print("Warning: I (Av/Anna) haven't yet put in the logic for "
                  "loading the "+loss+" loss from a yaml file."
                  "so I am going to replace it with a 'binary_crossentropy' "

@@ -15,6 +15,8 @@ from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Activation, Flatten
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
 from keras.utils import np_utils
+import keras 
+help(keras) 
 
 batch_size = 128
 nb_classes = 10
