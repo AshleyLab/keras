@@ -31,10 +31,46 @@ def get_fans(shape, dim_ordering='th'):
 def uniform(shape, scale=0.05, name=None):
     return K.random_uniform_variable(shape, -scale, scale, name=name)
 
-
 def normal(shape, scale=0.05, name=None):
     return K.random_normal_variable(shape, 0.0, scale, name=name)
 
+def nMers(shape, n, name=None):
+    import itertools;
+    assert len(shape)==4, "expecting axes: outChannel, inChannel, rows, cols but got shape: "+str(shape);
+    assert shape[1]==1, "expecting inChannel to be of len 1 because of on-hot encoding but got: "+str(shape[1])
+    assert shape[2]==4, "expecting 3rd axis to be of len 4 because rows for DNA seq but has len "+str(shape[2]);
+    assert shape[3]==n, "expecting 4th axis to be n="+str(n)+" because it's the width but is "+str(shape[3])
+  
+    weights = np.zeros(shape); 
+    #compute n^4 + (n-1)^4 + ... 
+    numChannels = sum([4**x for x in range(1,n+1)]);
+    assert shape[0]==numChannels, "must supply numFilters="+str(numChannels)+" for n="+str(n)+" (you gave "+str(shape[0])+")";
+    #get all possible 4-mers
+    filterIdx=0;
+    for k in range(1,n+1):
+        allKmers = list(itertools.product([0,1,2,3],repeat=k));
+        offsetOfKmerFromStart = int((n-k)/2); 
+        weights[filterIdx:filterIdx+len(allKmers),0,:,offsetOfKmerFromStart:offsetOfKmerFromStart+k] = -(k-1);
+        #print("initialising",len(list(allKmers)),"kmers of len",k);
+        for kmerArr in allKmers:
+            #kmerArr is an array of length k where entries are 0/1/2/3 representing the bases
+            #do fancy indexing into weights to set the appropriate positions to 1
+            weights[filterIdx
+                    ,0       
+                    ,kmerArr #A/C/G/T
+                    ,range(offsetOfKmerFromStart,offsetOfKmerFromStart+k)] = 1.0
+            filterIdx+=1; 
+    assert filterIdx==numChannels,str(filterIdx)
+    return K.variable(weights,name=name);
+
+def threeMers(shape, name=None):
+    return nMers(shape, 3, name=name);
+
+def fourMers(shape, name=None):
+    return nMers(shape, 3, name=name);
+
+def fiveMers(shape, name=None):
+    return nMers(shape, 5, name=name);
 
 def lecun_uniform(shape, name=None, dim_ordering='th'):
     ''' Reference: LeCun 98, Efficient Backprop
