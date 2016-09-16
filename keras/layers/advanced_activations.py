@@ -266,7 +266,7 @@ class SReLU(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class ChannelSoftmax(MaskedLayer):
+class ChannelSoftmax(Layer):
     '''Softmax applied across the channel axis
 
     # Input shape
