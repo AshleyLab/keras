@@ -49,6 +49,14 @@ def categorical_crossentropy(y_true, y_pred):
     return K.categorical_crossentropy(y_pred[nonAmbig], y_true[nonAmbig])
     
 
+def sparse_categorical_crossentropy(y_true, y_pred):
+    '''expects an array of integer classes.
+    Note: labels shape must have the same number of dimensions as output shape.
+    If you get a shape error, add a length-1 dimension to labels.
+    '''
+    return K.sparse_categorical_crossentropy(y_pred, y_true)
+
+
 def binary_crossentropy(y_true, y_pred):
     nonAmbig=(y_true > -0.5).nonzero()  
     return K.mean(K.binary_crossentropy(y_pred[nonAmbig], y_true[nonAmbig]), axis=-1)
@@ -68,6 +76,12 @@ def get_weighted_binary_crossentropy(w0_weights, w1_weights):
 
 
 
+def kullback_leibler_divergence(y_true, y_pred):
+    y_true = K.clip(y_true, K.epsilon(), 1)
+    y_pred = K.clip(y_pred, K.epsilon(), 1)
+    return K.sum(y_true * K.log(y_true / y_pred), axis=-1)
+
+
 def poisson(y_true, y_pred):
     return K.mean(y_pred - y_true * K.log(y_pred + K.epsilon()), axis=-1)
 
@@ -85,6 +99,7 @@ mse = MSE = mean_squared_error
 mae = MAE = mean_absolute_error
 mape = MAPE = mean_absolute_percentage_error
 msle = MSLE = mean_squared_logarithmic_error
+kld = KLD = kullback_leibler_divergence
 cosine = cosine_proximity
 from .utils.generic_utils import get_from_module
 def get(identifier):

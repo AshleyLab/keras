@@ -9,6 +9,7 @@ import warnings
 from collections import deque
 from .utils.generic_utils import Progbar
 from keras import backend as K
+from pkg_resources import parse_version
 
 
 class CallbackList(object):
@@ -60,8 +61,7 @@ class CallbackList(object):
             callback.on_batch_end(batch, logs)
         self._delta_ts_batch_end.append(time.time() - t_before_callbacks)
         delta_t_median = np.median(self._delta_ts_batch_end)
-        if self._delta_t_batch > 0. and delta_t_median > 0.95 * \
-           self._delta_t_batch and delta_t_median > 0.1:
+        if self._delta_t_batch > 0. and (delta_t_median > 0.95 * self._delta_t_batch and delta_t_median > 0.1):
             warnings.warn('Method on_batch_end() is slow compared '
                           'to the batch update (%f). Check your callbacks.'
                           % delta_t_median)
@@ -92,7 +92,8 @@ class Callback(object):
     will include the following quantities in the `logs` that
     it passes to its callbacks:
 
-        on_epoch_end: logs optionally include `val_loss`
+        on_epoch_end: logs include `acc` and `loss`, and
+            optionally include `val_loss`
             (if validation is enabled in `fit`), and `val_acc`
             (if validation and accuracy monitoring are enabled).
         on_batch_begin: logs include `size`,
@@ -129,11 +130,35 @@ class Callback(object):
 
 
 class BaseLogger(Callback):
-    '''Callback that prints events to the standard output.
+    '''Callback that accumulates epoch averages of
+    the metrics being monitored.
 
     This callback is automatically applied to
-    every Keras model (it is the basis of the verbosity modes
-    in models).
+    every Keras model.
+    '''
+    def on_epoch_begin(self, epoch, logs={}):
+        self.seen = 0
+        self.totals = {}
+
+    def on_batch_end(self, batch, logs={}):
+        batch_size = logs.get('size', 0)
+        self.seen += batch_size
+
+        for k, v in logs.items():
+            if k in self.totals:
+                self.totals[k] += v * batch_size
+            else:
+                self.totals[k] = v * batch_size
+
+    def on_epoch_end(self, epoch, logs={}):
+        for k in self.params['metrics']:
+            if k in self.totals:
+                # make value available to next callbacks
+                logs[k] = self.totals[k] / self.seen
+
+
+class ProgbarLogger(Callback):
+    '''Callback that prints metrics to stdout.
     '''
     def on_train_begin(self, logs={}):
         self.verbose = self.params['verbose']
@@ -145,7 +170,6 @@ class BaseLogger(Callback):
             self.progbar = Progbar(target=self.params['nb_sample'],
                                    verbose=self.verbose)
         self.seen = 0
-        self.totals = {}
 
     def on_batch_begin(self, batch, logs={}):
         if self.seen < self.params['nb_sample']:
@@ -155,11 +179,6 @@ class BaseLogger(Callback):
         batch_size = logs.get('size', 0)
         self.seen += batch_size
 
-        for k, v in logs.items():
-            if k in self.totals:
-                self.totals[k] += v * batch_size
-            else:
-                self.totals[k] = v * batch_size
         for k in self.params['metrics']:
             if k in logs:
                 self.log_values.append((k, logs[k]))
@@ -171,12 +190,10 @@ class BaseLogger(Callback):
 
     def on_epoch_end(self, epoch, logs={}):
         for k in self.params['metrics']:
-            if k in self.totals:
-                self.log_values.append((k, self.totals[k] / self.seen))
             if k in logs:
                 self.log_values.append((k, logs[k]))
         if self.verbose:
-            self.progbar.update(self.seen, self.log_values)
+            self.progbar.update(self.seen, self.log_values, force=True)
 
 
 class History(Callback):
@@ -191,30 +208,10 @@ class History(Callback):
         self.epoch = []
         self.history = {}
 
-    def on_epoch_begin(self, epoch, logs={}):
-        self.seen = 0
-        self.totals = {}
-
-    def on_batch_end(self, batch, logs={}):
-        batch_size = logs.get('size', 0)
-        self.seen += batch_size
-        for k, v in logs.items():
-            if k in self.totals:
-                self.totals[k] += v * batch_size
-            else:
-                self.totals[k] = v * batch_size
-
     def on_epoch_end(self, epoch, logs={}):
         self.epoch.append(epoch)
-        for k, v in self.totals.items():
-            if k not in self.history:
-                self.history[k] = []
-            self.history[k].append(v / self.seen)
-
         for k, v in logs.items():
-            if k not in self.history:
-                self.history[k] = []
-            self.history[k].append(v)
+            self.history.setdefault(k, []).append(v)
 
 
 class ModelCheckpoint(Callback):
@@ -234,29 +231,33 @@ class ModelCheckpoint(Callback):
         verbose: verbosity mode, 0 or 1.
         save_best_only: if `save_best_only=True`,
             the latest best model according to
-            the validation loss will not be overwritten.
+            the quantity monitored will not be overwritten.
         mode: one of {auto, min, max}.
             If `save_best_only=True`, the decision
             to overwrite the current save file is made
             based on either the maximization or the
-            minization of the monitored. For `val_acc`,
+            minimization of the monitored quantity. For `val_acc`,
             this should be `max`, for `val_loss` this should
             be `min`, etc. In `auto` mode, the direction is
             automatically inferred from the name of the monitored quantity.
+        save_weights_only: if True, then only the model's weights will be
+            saved (`model.save_weights(filepath)`), else the full model
+            is saved (`model.save(filepath)`).
 
     '''
     def __init__(self, filepath, monitor='val_loss', verbose=0,
-                 save_best_only=False, mode='auto'):
-
-        super(Callback, self).__init__()
+                 save_best_only=False, save_weights_only=False,
+                 mode='auto'):
+        super(ModelCheckpoint, self).__init__()
         self.monitor = monitor
         self.verbose = verbose
         self.filepath = filepath
         self.save_best_only = save_best_only
+        self.save_weights_only = save_weights_only
 
         if mode not in ['auto', 'min', 'max']:
             warnings.warn('ModelCheckpoint mode %s is unknown, '
-                          'fallback to auto mode.' % (self.mode),
+                          'fallback to auto mode.' % (mode),
                           RuntimeWarning)
             mode = 'auto'
 
@@ -289,7 +290,10 @@ class ModelCheckpoint(Callback):
                               % (epoch, self.monitor, self.best,
                                  current, filepath))
                     self.best = current
-                    self.model.save_weights(filepath, overwrite=True)
+                    if self.save_weights_only:
+                        self.model.save_weights(filepath, overwrite=True)
+                    else:
+                        self.model.save(filepath, overwrite=True)
                 else:
                     if self.verbose > 0:
                         print('Epoch %05d: %s did not improve' %
@@ -297,7 +301,10 @@ class ModelCheckpoint(Callback):
         else:
             if self.verbose > 0:
                 print('Epoch %05d: saving model to %s' % (epoch, filepath))
-            self.model.save_weights(filepath, overwrite=True)
+            if self.save_weights_only:
+                self.model.save_weights(filepath, overwrite=True)
+            else:
+                self.model.save(filepath, overwrite=True)
 
 
 class EarlyStopping(Callback):
@@ -308,14 +315,16 @@ class EarlyStopping(Callback):
         patience: number of epochs with no improvement
             after which training will be stopped.
         verbose: verbosity mode.
-        mode: one of {auto, min, max}. In 'min' mode,
+        mode: one of {auto, min, max}. In `min` mode,
             training will stop when the quantity
-            monitored has stopped decreasing; in 'max'
+            monitored has stopped decreasing; in `max`
             mode it will stop when the quantity
-            monitored has stopped increasing.
+            monitored has stopped increasing; in `auto`
+            mode, the direction is automatically inferred
+            from the name of the monitored quantity.
     '''
     def __init__(self, monitor='val_loss', patience=0, verbose=0, mode='auto'):
-        super(Callback, self).__init__()
+        super(EarlyStopping, self).__init__()
 
         self.monitor = monitor
         self.patience = patience
@@ -324,22 +333,23 @@ class EarlyStopping(Callback):
 
         if mode not in ['auto', 'min', 'max']:
             warnings.warn('EarlyStopping mode %s is unknown, '
-                          'fallback to auto mode.' % (self.mode), RuntimeWarning)
+                          'fallback to auto mode.' % (self.mode),
+                          RuntimeWarning)
             mode = 'auto'
 
         if mode == 'min':
             self.monitor_op = np.less
-            self.best = np.Inf
         elif mode == 'max':
             self.monitor_op = np.greater
-            self.best = -np.Inf
         else:
             if 'acc' in self.monitor:
                 self.monitor_op = np.greater
-                self.best = -np.Inf
             else:
                 self.monitor_op = np.less
-                self.best = np.Inf
+
+    def on_train_begin(self, logs={}):
+        self.wait = 0       # Allow instances to be re-used
+        self.best = np.Inf if self.monitor_op == np.less else -np.Inf
 
     def on_epoch_end(self, epoch, logs={}):
         current = logs.get(self.monitor)
@@ -366,39 +376,29 @@ class RemoteMonitor(Callback):
     # Arguments
         root: root url to which the events will be sent (at the end
             of every epoch). Events are sent to
-            `root + '/publish/epoch/end/'`. Calls are HTTP POST,
-            with a `data` argument which is a JSON-encoded dictionary
-            of event data.
+            `root + '/publish/epoch/end/'` by default. Calls are
+            HTTP POST, with a `data` argument which is a
+            JSON-encoded dictionary of event data.
     '''
-    def __init__(self, root='http://localhost:9000'):
+
+    def __init__(self,
+                 root='http://localhost:9000',
+                 path='/publish/epoch/end/',
+                 field='data'):
+        super(RemoteMonitor, self).__init__()
         self.root = root
-
-    def on_epoch_begin(self, epoch, logs={}):
-        self.seen = 0
-        self.totals = {}
-
-    def on_batch_end(self, batch, logs={}):
-        batch_size = logs.get('size', 0)
-        self.seen += batch_size
-        for k, v in logs.items():
-            if k in self.totals:
-                self.totals[k] += v * batch_size
-            else:
-                self.totals[k] = v * batch_size
+        self.path = path
+        self.field = field
 
     def on_epoch_end(self, epoch, logs={}):
         import requests
         send = {}
         send['epoch'] = epoch
-
-        for k, v in self.totals.items():
-            send[k] = v / self.seen
         for k, v in logs.items():
             send[k] = v
-
         try:
-            requests.post(self.root + '/publish/epoch/end/',
-                          {'data': json.dumps(send)})
+            requests.post(self.root + self.path,
+                          {self.field: json.dumps(send)})
         except:
             print('Warning: could not reach RemoteMonitor '
                   'root server at ' + str(self.root))
@@ -444,80 +444,86 @@ class TensorBoard(Callback):
 
     # Arguments
         log_dir: the path of the directory where to save the log
-            files to be parsed by tensorboard
+            files to be parsed by Tensorboard
         histogram_freq: frequency (in epochs) at which to compute activation
             histograms for the layers of the model. If set to 0,
             histograms won't be computed.
+        write_graph: whether to visualize the graph in Tensorboard.
+            The log file can become quite large when
+            write_graph is set to True.
     '''
-    def __init__(self, log_dir='./logs', histogram_freq=0):
-        super(Callback, self).__init__()
+
+    def __init__(self, log_dir='./logs', histogram_freq=0, write_graph=True, write_images=False):
+        super(TensorBoard, self).__init__()
         if K._BACKEND != 'tensorflow':
             raise Exception('TensorBoard callback only works '
                             'with the TensorFlow backend.')
         self.log_dir = log_dir
         self.histogram_freq = histogram_freq
         self.merged = None
+        self.write_graph = write_graph
+        self.write_images = write_images
 
     def _set_model(self, model):
         import tensorflow as tf
         import keras.backend.tensorflow_backend as KTF
 
         self.model = model
-        self.sess = KTF._get_session()
-        if self.histogram_freq and not self.merged:
-            mod_type = self.model.get_config()['name']
-            if mod_type == 'Sequential':
-                layers = {l.get_config()['name']: l for l in self.model.layers}
-            elif mod_type == 'Graph':
-                layers = self.model.nodes
-            else:
-                raise Exception('Unrecognized model:',
-                                self.model.get_config()['name'])
-            for l in layers:
-                cur_layer = layers[l]
-                if hasattr(cur_layer, 'W'):
-                    tf.histogram_summary('{}_W'.format(l), cur_layer.W)
-                if hasattr(cur_layer, 'b'):
-                    tf.histogram_summary('{}_b'.format(l), cur_layer.b)
-                if hasattr(cur_layer, 'get_output'):
-                    tf.histogram_summary('{}_out'.format(l),
-                                         cur_layer.get_output())
+        self.sess = KTF.get_session()
+        if self.histogram_freq and self.merged is None:
+            for layer in self.model.layers:
+
+                for weight in layer.weights:
+                    tf.histogram_summary(weight.name, weight)
+
+                    if self.write_images:
+                        w_img = tf.squeeze(weight)
+
+                        shape = w_img.get_shape()
+                        if len(shape) > 1 and shape[0] > shape[1]:
+                            w_img = tf.transpose(w_img)
+
+                        if len(shape) == 1:
+                            w_img = tf.expand_dims(w_img, 0)
+
+                        w_img = tf.expand_dims(tf.expand_dims(w_img, 0), -1)
+
+                        tf.image_summary(weight.name, w_img)
+
+                if hasattr(layer, 'output'):
+                    tf.histogram_summary('{}_out'.format(layer.name),
+                                         layer.output)
         self.merged = tf.merge_all_summaries()
-        self.writer = tf.train.SummaryWriter(self.log_dir,
-                                             self.sess.graph_def)
-
-    def on_epoch_begin(self, epoch, logs={}):
-        self.seen = 0
-        self.totals = {}
-
-    def on_batch_end(self, batch, logs={}):
-        batch_size = logs.get('size', 0)
-        self.seen += batch_size
-        for k, v in logs.items():
-            if k in self.totals:
-                self.totals[k] += v * batch_size
+        if self.write_graph:
+            if parse_version(tf.__version__) >= parse_version('0.8.0'):
+                self.writer = tf.train.SummaryWriter(self.log_dir,
+                                                     self.sess.graph)
             else:
-                self.totals[k] = v * batch_size
+                self.writer = tf.train.SummaryWriter(self.log_dir,
+                                                     self.sess.graph_def)
+        else:
+            self.writer = tf.train.SummaryWriter(self.log_dir)
 
     def on_epoch_end(self, epoch, logs={}):
         import tensorflow as tf
 
         if self.model.validation_data and self.histogram_freq:
             if epoch % self.histogram_freq == 0:
-                if self.params.get('show_accuracy'):
-                    test_function = self.model._test_with_acc
+                # TODO: implement batched calls to sess.run
+                # (current call will likely go OOM on GPU)
+                if self.model.uses_learning_phase:
+                    cut_v_data = len(self.model.inputs)
+                    val_data = self.model.validation_data[:cut_v_data] + [0]
+                    tensors = self.model.inputs + [K.learning_phase()]
                 else:
-                    test_function = self.model._test
-                names = [v.name for v in test_function.inputs]
-                feed_dict = dict(zip(names, self.model.validation_data))
+                    val_data = self.model.validation_data
+                    tensors = self.model.inputs
+                feed_dict = dict(zip(tensors, val_data))
                 result = self.sess.run([self.merged], feed_dict=feed_dict)
                 summary_str = result[0]
                 self.writer.add_summary(summary_str, epoch)
 
-        all_values = self.totals.copy()
-        all_values.update(logs)
-
-        for name, value in all_values.items():
+        for name, value in logs.items():
             if name in ['batch', 'size']:
                 continue
             summary = tf.Summary()

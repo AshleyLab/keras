@@ -2,14 +2,14 @@
 
 ## You have just found Keras.
 
-Keras is a minimalist, highly modular neural networks library, written in Python and capable of running on top of either [TensorFlow](https://github.com/tensorflow/tensorflow) or [Theano](https://github.com/Theano/Theano). It was developed with a focus on enabling fast experimentation. Being able to go from idea to result with the least possible delay is key to doing good research.
+Keras is a minimalist, highly modular neural networks library, written in Python and capable of running on top of either [TensorFlow](https://github.com/tensorflow/tensorflow) or [Theano](https://github.com/Theano/Theano). It was developed with a focus on enabling fast experimentation. *Being able to go from idea to result with the least possible delay is key to doing good research.*
 
 Use Keras if you need a deep learning library that:
 
-- allows for easy and fast prototyping (through total modularity, minimalism, and extensibility).
-- supports both convolutional networks and recurrent networks, as well as combinations of the two.
-- supports arbitrary connectivity schemes (including multi-input and multi-output training).
-- runs seamlessly on CPU and GPU.
+- Allows for easy and fast prototyping (through total modularity, minimalism, and extensibility).
+- Supports both convolutional networks and recurrent networks, as well as combinations of the two.
+- Supports arbitrary connectivity schemes (including multi-input and multi-output training).
+- Runs seamlessly on CPU and GPU.
 
 Read the documentation at [Keras.io](http://keras.io).
 
@@ -35,9 +35,9 @@ Keras is compatible with: __Python 2.7-3.5__.
 
 ## Getting started: 30 seconds to Keras
 
-The core datastructure of Keras is a __model__, a way to organize layers. There are two types of models: [`Sequential`](http://keras.io/models/#sequential) and [`Graph`](http://keras.io/models/#graph).
+The core data structure of Keras is a __model__, a way to organize layers. The main type of model is the [`Sequential`](http://keras.io/getting-started/sequential-model-guide) model, a linear stack of layers. For more complex architectures, you should use the [Keras functional API](http://keras.io/getting-started/functional-api-guide).
 
-Here's the `Sequential` model (a linear pile of layers):
+Here's the `Sequential` model:
 
 ```python
 from keras.models import Sequential
@@ -48,17 +48,17 @@ model = Sequential()
 Stacking layers is as easy as `.add()`:
 
 ```python
-from keras.layers.core import Dense, Activation
+from keras.layers import Dense, Activation
 
-model.add(Dense(output_dim=64, input_dim=100, init="glorot_uniform"))
+model.add(Dense(output_dim=64, input_dim=100))
 model.add(Activation("relu"))
-model.add(Dense(output_dim=10, init="glorot_uniform"))
+model.add(Dense(output_dim=10))
 model.add(Activation("softmax"))
 ```
 
 Once your model looks good, configure its learning process with `.compile()`:
 ```python
-model.compile(loss='categorical_crossentropy', optimizer='sgd')
+model.compile(loss='categorical_crossentropy', optimizer='sgd', metrics=['accuracy'])
 ```
 
 If you need to, you can further configure your optimizer. A core principle of Keras is to make things reasonably simple, while allowing the user to be fully in control when they need to (the ultimate control being the easy extensibility of the source code).
@@ -79,7 +79,7 @@ model.train_on_batch(X_batch, Y_batch)
 
 Evaluate your performance in one line:
 ```python
-objective_score = model.evaluate(X_test, Y_test, batch_size=32)
+loss_and_metrics = model.evaluate(X_test, Y_test, batch_size=32)
 ```
 
 Or generate predictions on new data:
@@ -88,11 +88,14 @@ classes = model.predict_classes(X_test, batch_size=32)
 proba = model.predict_proba(X_test, batch_size=32)
 ```
 
-Building a network of LSTMs, a deep CNN, a Neural Turing Machine, a word2vec embedder or any other model is just as fast. The ideas behind deep learning are simple, so why should their implementation be painful?
+Building a question answering system, an image classification model, a Neural Turing Machine, a word2vec embedder or any other model is just as fast. The ideas behind deep learning are simple, so why should their implementation be painful?
 
-Have a look at these [starter examples](http://keras.io/examples/).
+For a more in-depth tutorial about Keras, you can check out:
 
-In the [examples folder](https://github.com/fchollet/keras/tree/master/examples) of the repo, you will find more advanced models: question-answering with memory networks, text generation with stacked LSTMs, neural turing machines, etc.
+- [Getting started with the Sequential model](http://keras.io/getting-started/sequential-model-guide)
+- [Getting started with the functional API](http://keras.io/getting-started/functional-api-guide)
+
+In the [examples folder](https://github.com/fchollet/keras/tree/master/examples) of the repository, you will find more advanced models: question-answering with memory networks, text generation with stacked LSTMs, etc.
 
 
 ------------------
@@ -107,37 +110,33 @@ Keras uses the following dependencies:
 - HDF5 and h5py (optional, required if you use model saving/loading functions)
 - Optional but recommended if you use CNNs: cuDNN.
 
-*When using the Theano backend:*
-
-- Theano
-    - [See installation instructions](http://deeplearning.net/software/theano/install.html#install).
-
-**Note**: You should use the latest version of Theano, not the PyPI version. Install it with:
-```
-sudo pip install git+git://github.com/Theano/Theano.git
-```
 
 *When using the TensorFlow backend:*
 
 - TensorFlow
     - [See installation instructions](https://github.com/tensorflow/tensorflow#download-and-setup).
 
+*When using the Theano backend:*
+
+- Theano
+    - [See installation instructions](http://deeplearning.net/software/theano/install.html#install).
+
 To install Keras, `cd` to the Keras folder and run the install command:
-```
+```sh
 sudo python setup.py install
 ```
 
 You can also install Keras from PyPI:
-```
+```sh
 sudo pip install keras
 ```
 
 ------------------
 
 
-## Switching from Theano to TensorFlow
+## Switching from TensorFlow to Theano
 
-By default, Keras will use Theano as its tensor manipulation library. [Follow these instructions](http://keras.io/backend/) to configure the Keras backend.
+By default, Keras will use TensorFlow as its tensor manipulation library. [Follow these instructions](http://keras.io/backend/) to configure the Keras backend.
 
 ------------------
 
