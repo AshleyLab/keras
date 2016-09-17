@@ -255,6 +255,54 @@ class AveragePooling2D(_Pooling2D):
         return output
 
 
+class WeightedPooling2D(_Pooling2D):
+    '''Weighted Average pooling operation for spatial data.
+    # Input shape
+        4D tensor with shape:
+        `(samples, channels, rows, cols)` if dim_ordering='th'
+        or 4D tensor with shape:
+        `(samples, rows, cols, channels)` if dim_ordering='tf'.
+    # Output shape
+        4D tensor with shape:
+        `(nb_samples, channels, pooled_rows, pooled_cols)` if dim_ordering='th'
+        or 4D tensor with shape:
+        `(samples, pooled_rows, pooled_cols, channels)` if dim_ordering='tf'.
+    # Arguments
+        pool_size: tuple of 2 integers,
+            factors by which to downscale (vertical, horizontal).
+            (2, 2) will halve the image in each dimension.
+        strides: tuple of 2 integers, or None. Strides values.
+        border_mode: 'valid' or 'same'.
+            Note: 'same' will only work with TensorFlow for the time being.
+        dim_ordering: 'th' or 'tf'. In 'th' mode, the channels dimension
+            (the depth) is at index 1, in 'tf' mode is it at index 3.
+        init: glorot_uniform (for temperature initialization) 
+    '''
+    def __init__(self, pool_size=(2, 2), strides=None, border_mode='valid',
+                 dim_ordering='th', init="one", **kwargs):
+
+        super(WeightedPooling2D, self).__init__(pool_size, strides, border_mode,
+                                               dim_ordering, **kwargs)
+        self.init = initializations.get(init)
+        assert strides==pool_size, 'for weighted pooling, the pool stride must equal to the pool width (1) ' 
+        #assert strides==1, 'for weighted global average pooling, set stride=1 and stride_widths =1'
+    def build(self): 
+        self.tau = self.init((self.input_shape[1],))
+        self.trainable_weights = [self.tau]
+    
+    def _pooling_function(self, inputs, pool_size, strides,
+                          border_mode, dim_ordering):
+        pool_axis=-1; 
+        if dim_ordering=="tf": 
+            pool_axis=2; 
+        #global pool (for now) 
+        t_denominator=K.sum(K.exp(inputs/self.tau[None,:,None,None]),axis=pool_axis)
+        t_softmax=K.exp(inputs/self.tau[None,:,None,None])/t_denominator[:,:,:,None]; 
+        t_weighted_average=K.sum(t_softmax*inputs,axis=pool_axis)        
+        output=t_weighted_average[:,:,:,None]; 
+        return output
+
+
 class _Pooling3D(Layer):
     '''Abstract class for different pooling 3D layers.
     '''
