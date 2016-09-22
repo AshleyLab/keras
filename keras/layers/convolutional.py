@@ -786,6 +786,64 @@ class UpSampling2D(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
+class MaxPoolFilter2D(Layer):
+    '''Only retain those positions that are the max in some maxpool kernel
+
+    # Input shape
+        4D tensor with shape:
+        `(samples, channels, rows, cols)` if dim_ordering='th'
+        or 4D tensor with shape:
+        `(samples, rows, cols, channels)` if dim_ordering='tf'.
+
+    # Output shape
+        4D tensor with shape:
+        `(samples, channels, upsampled_rows, upsampled_cols)` if dim_ordering='th'
+        or 4D tensor with shape:
+        `(samples, upsampled_rows, upsampled_cols, channels)` if dim_ordering='tf'.
+
+    # Arguments
+        pool_size: tuple of 2 integers. The maxpool kernel for rows and columns.
+        pool_stride: tuple of 2 integers. The maxpool stride for rows and columns.
+        dim_ordering: 'th' or 'tf'.
+            In 'th' mode, the channels dimension (the depth)
+            is at index 1, in 'tf' mode is it at index 3.
+    '''
+    input_ndim = 4
+
+    def __init__(self, pool_size, pool_stride=(1,1),
+                 border_mode='valid', dim_ordering='th', **kwargs):
+        super(MaxPoolFilter2D, self).__init__(**kwargs)
+        self.input = K.placeholder(ndim=4)
+        self.pool_size = tuple(pool_size)
+        self.pool_stride = tuple(pool_stride)
+        self.border_mode = border_mode
+        assert dim_ordering in {'tf', 'th'}, 'dim_ordering must be in {tf, th}'
+        self.dim_ordering = dim_ordering
+
+    @property
+    def output_shape(self):
+        return self.input_shape
+
+    def get_output(self, train=False):
+        #only retain those positions of X that have nonzero gradient
+        #after maxpool
+        X = self.get_input(train)
+        pool_output = K.pool2d(X, self.pool_size, self.pool_stride,
+                          self.border_mode, self.dim_ordering, pool_mode='max')
+        sum_pool_output = K.sum(pool_output)
+        grad_on_X = K.gradients(sum_pool_output, X) 
+        output = K.switch(K.greater(grad_on_X,0), X, 0) 
+        return output
+
+    def get_config(self):
+        config = {'name': self.__class__.__name__,
+                  'pool_size': self.pool_size,
+                  'pool_stride': self.pool_stride,
+                  'border_mode': self.border_mode}
+        base_config = super(MaxPoolFilter2D, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
 class ZeroPadding1D(Layer):
     '''Zero-padding layer for 1D input (e.g. temporal sequence).
 
