@@ -75,6 +75,34 @@ def get_weighted_binary_crossentropy(w0_weights, w1_weights):
     return weighted_binary_crossentropy; 
 
 
+def one_hot_from_logits_categorical_cross_entropy(y_true, y_pred):
+    '''expects y_true and y_pred to be of dims
+    samples x 1 x one-hot rows x length (if theano dim ordering) or
+    samples x one-hot rows x length x 1 (if tensorflow dim ordering).
+    WILL APPLY THE SOFTMAX ITSELF'''
+    if K.image_dim_ordering()=='th':
+        y_true = y_true[:,0,:,:]
+        y_pred = y_pred[:,0,:,:]
+    elif K.image_dim_ordering()=='tf':
+        y_true = y_true[:,:,:,0]
+        y_pred = y_pred[:,:,:,0]
+    samples = y_true.shape[0]
+    rows = y_true.shape[1]
+    length = y_true.shape[2]
+
+    #permute to samples x length x one-hot-rows
+    y_true = K.permute_dimensions(y_true, (0,2,1)) 
+    y_pred = K.permute_dimensions(y_pred, (0,2,1)) 
+    #reshape to (samples*length) x one-hot-rows
+    y_true = K.reshape(y_true, (samples*length, rows))
+    y_pred = K.reshape(y_pred, (samples*length, rows))
+    #apply categorical cross-entropy 
+    loss = K.categorical_crossentropy(y_pred, y_true, from_logits=True)
+    #reshape loss from (samples*length) to samples x length
+    loss = K.reshape(loss, (samples, length)) 
+    #take mean across length to return something of size samples
+    return K.mean(loss, axis=-1)
+
 
 def kullback_leibler_divergence(y_true, y_pred):
     y_true = K.clip(y_true, K.epsilon(), 1)
