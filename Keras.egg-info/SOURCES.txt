@@ -3,7 +3,6 @@ setup.py
 Keras.egg-info/PKG-INFO
 Keras.egg-info/SOURCES.txt
 Keras.egg-info/dependency_links.txt
-Keras.egg-info/pbr.json
 Keras.egg-info/requires.txt
 Keras.egg-info/top_level.txt
 keras/__init__.py

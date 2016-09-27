@@ -788,6 +788,7 @@ class UpSampling2D(Layer):
 
 class MaxPoolFilter2D(Layer):
     '''Only retain those positions that are the max in some maxpool kernel
+       For now, only working with non-overlapping strides
 
     # Input shape
         4D tensor with shape:
@@ -803,19 +804,17 @@ class MaxPoolFilter2D(Layer):
 
     # Arguments
         pool_size: tuple of 2 integers. The maxpool kernel for rows and columns.
-        pool_stride: tuple of 2 integers. The maxpool stride for rows and columns.
         dim_ordering: 'th' or 'tf'.
             In 'th' mode, the channels dimension (the depth)
             is at index 1, in 'tf' mode is it at index 3.
     '''
     input_ndim = 4
 
-    def __init__(self, pool_size, pool_stride=(1,1),
+    def __init__(self, pool_size,
                  border_mode='valid', dim_ordering='th', **kwargs):
         super(MaxPoolFilter2D, self).__init__(**kwargs)
         self.input = K.placeholder(ndim=4)
         self.pool_size = tuple(pool_size)
-        self.pool_stride = tuple(pool_stride)
         self.border_mode = border_mode
         assert dim_ordering in {'tf', 'th'}, 'dim_ordering must be in {tf, th}'
         self.dim_ordering = dim_ordering
@@ -828,11 +827,31 @@ class MaxPoolFilter2D(Layer):
         #only retain those positions of X that have nonzero gradient
         #after maxpool
         X = self.get_input(train)
-        pool_output = K.pool2d(X, self.pool_size, self.pool_stride,
-                          self.border_mode, self.dim_ordering, pool_mode='max')
-        sum_pool_output = K.sum(pool_output)
-        grad_on_X = K.gradients(sum_pool_output, X) 
-        output = K.switch(K.greater(grad_on_X,0), X, 0) 
+        pool_output = K.pool2d(X, pool_size=self.pool_size,
+                          strides=self.pool_stride,
+                          border_mode=self.border_mode,
+                          dim_ordering=self.dim_ordering, pool_mode='max')
+
+        #upsample the pool output
+        upsampled_pool_out = K.resize_images(
+                                 X=pool_output,
+                                 height_factor=pool_size[0],
+                                 width_factor=pool_size[1],
+                                 dim_ordering=self.dim_ordering)
+        upsample_pool_out_size = tuple(
+            [(int((self.input_shape[i]-
+                  self.pool_size[i])/self.pool_stride[i])+1)*pool_size[i]
+             for i in range(len(self.input_shape))])
+
+        #pad on right to be same dimensions as input
+        upsampled_pool_out_padded = K.zeros(shape=self.input_shape) 
+        upsampled_pool_out_padded[:,:,
+            :self.upsample_pool_size[0],
+            :self.upsample_pool_size[1]] = upsampled_pool_out 
+
+        #only return those positions in the input that are
+        #equal to the padded upsampled pooled output 
+        output = K.switch(K.equal(upsampled_pool_out_padded,X), X, 0) 
         return output
 
     def get_config(self):
@@ -844,7 +863,7 @@ class MaxPoolFilter2D(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class SoftmaxAcrossConvAxis(Layer):
+class SoftmaxAcrossAxis(Layer):
     '''Applies a softmax operation across a specified axis
 
     # Input shape
@@ -883,7 +902,7 @@ class SoftmaxAcrossConvAxis(Layer):
         return softmaxed_X
 
 
-class SoftmaxAcrossRows(SoftmaxAcrossConvAxis):
+class SoftmaxAcrossRows(SoftmaxAcrossAxis):
     '''Applies a softmax operation across the rows
 
     # Input shape
