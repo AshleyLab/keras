@@ -797,9 +797,9 @@ class MaxPoolFilter2D(Layer):
 
     # Output shape
         4D tensor with shape:
-        `(samples, channels, upsampled_rows, upsampled_cols)` if dim_ordering='th'
+        `(samples, channels, rows, cols)` if dim_ordering='th'
         or 4D tensor with shape:
-        `(samples, upsampled_rows, upsampled_cols, channels)` if dim_ordering='tf'.
+        `(samples, rows, cols, channels)` if dim_ordering='tf'.
 
     # Arguments
         pool_size: tuple of 2 integers. The maxpool kernel for rows and columns.
@@ -842,6 +842,99 @@ class MaxPoolFilter2D(Layer):
                   'border_mode': self.border_mode}
         base_config = super(MaxPoolFilter2D, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
+
+class SoftmaxAcrossConvAxis(Layer):
+    '''Applies a softmax operation across a specified axis
+
+    # Input shape
+        anything
+
+    # Output shape
+        same as input shape
+    '''
+
+    def __init__(self, axis, **kwargs):
+        super(SoftmaxAcrossAxis, self).__init__(**kwargs)
+        self.axis = axis
+        self.input = K.placeholder(ndim=4)
+
+    @property
+    def output_shape(self):
+        return self.input_shape
+
+    def get_output(self, train=False):
+        new_axis_order = [i for i in range(4) if i != self.axis]
+        new_axis_order.append(self.axis)
+        inverse_axis_order = [None]*4
+        for (i,j) in enumerate(new_axis_order):
+            inverse_axis_order[j] = i
+        
+        X = self.get_input(train)
+        original_X_shape = X.shape
+        X = K.permute_dimensions(X, new_axis_order) 
+        permuted_X_shape = X.shape
+        reshape_axis_1 = (permuted_X_shape[0]*permuted_X_shape[1]
+                          *permuted_X_shape[2])
+        X = K.reshape(X, (reshape_axis_1, original_X_shape[-1])) 
+        softmaxed_X = K.softmax(X)
+        softmaxed_X = K.reshape(softmaxed_X, permuted_X_shape)
+        softmaxed_X = K.permute_dimensions(softmaxed_X, inverse_axis_order)
+        return softmaxed_X
+
+
+class SoftmaxAcrossRows(SoftmaxAcrossConvAxis):
+    '''Applies a softmax operation across the rows
+
+    # Input shape
+        anything
+
+    # Output shape
+        same as input shape
+    '''
+
+    def __init__(self, dim_ordering='th', **kwargs):
+        if (dim_ordering=='th'):
+            axis=2
+        elif (dim_ordering=='tf'):
+            axis=1
+        super(SoftmaxAcrossRows, self).__init__(axis=axis, **kwargs)
+
+    def get_config(self):
+        config = {'name': self.__class__.__name__}
+        base_config = super(SoftmaxAcrossRows, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
+class ExchangeChannelsAndRows(Layer):
+    '''Exchanges the channels and rows axes
+
+    # Input shape
+        anything
+
+    # Output shape
+        same as input but with channel and row dims switched
+    '''
+
+    def __init__(self, dim_ordering='th', **kwargs):
+        super(ExchangeChannelsAndRows, self).__init__(**kwargs)
+        self.dim_ordering=dim_ordering
+        self.th_permute = (0,2,1,3)
+        self.tf_permute = (0,3,2,1)
+
+    @property
+    def output_shape(self):
+        if (self.dim_ordering=='th'):
+            return tuple([self.input_shape[x] for x in self.th_permute])
+        elif (self.dim_ordering=='tf'):
+            return tuple([self.input_shape[x] for x in self.tf_permute])
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+        if (self.dim_ordering=='th'):
+            return K.permute_dimensions(X, self.th_permute) 
+        elif (self.dim_ordering=='tf'):
+            return K.permute_dimensions(X, self.tf_permute)
 
 
 class ZeroPadding1D(Layer):

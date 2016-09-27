@@ -46,6 +46,11 @@ def categorical_crossentropy(y_true, y_pred):
     '''Expects a binary class matrix instead of a vector of scalar classes.
     '''
     nonAmbig=(y_true > -.5).nonzero() 
+    #print(K.eval(y_true))
+    #print(len(K.eval(nonAmbig[0])), len(K.eval(nonAmbig[1])))
+    #print(K.eval(y_pred[nonAmbig]))
+    #print(K.eval(y_true[nonAmbig]))
+    #print("out",K.eval(K.categorical_crossentropy(y_pred[nonAmbig], y_true[nonAmbig])))
     return K.categorical_crossentropy(y_pred[nonAmbig], y_true[nonAmbig])
     
 
@@ -89,7 +94,7 @@ def one_hot_from_logits_categorical_cross_entropy(y_true, y_pred):
     y_true = K.reshape(y_true, (samples*length, rows))
     y_pred = K.reshape(y_pred, (samples*length, rows))
     #apply categorical cross-entropy 
-    loss = K.categorical_crossentropy(y_pred, y_true, from_logits=True)
+    loss = K.categorical_crossentropy(y_pred, y_true, from_logits=False)
     #reshape loss from (samples*length) to samples x length
     loss = K.reshape(loss, (samples, length)) 
     #take mean across length to return something of size samples

@@ -21,7 +21,8 @@ def test_objective_shapes_3d():
     y_b = K.variable(np.random.random((5, 6, 7)))
     for obj in allobj:
         objective_output = obj(y_a, y_b)
-        assert K.eval(objective_output).shape == (5, 6)
+        assert K.eval(objective_output).shape == (5, 6),\
+                str(obj)+" "+str(K.eval(objective_output).shape)
 
 
 def test_objective_shapes_2d():
@@ -29,7 +30,8 @@ def test_objective_shapes_2d():
     y_b = K.variable(np.random.random((6, 7)))
     for obj in allobj:
         objective_output = obj(y_a, y_b)
-        assert K.eval(objective_output).shape == (6,)
+        assert K.eval(objective_output).shape == (6,),\
+                str(obj)+" "+str(K.eval(objective_output).shape)
 
 
 if __name__ == "__main__":
