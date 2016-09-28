@@ -72,7 +72,7 @@ def get_weighted_binary_crossentropy(w0_weights, w1_weights):
     return weighted_binary_crossentropy; 
 
 
-def one_hot_from_logits_categorical_cross_entropy(y_true, y_pred):
+def one_hot_rows_categorical_cross_entropy(y_true, y_pred):
     '''expects y_true and y_pred to be of dims
     samples x 1 x one-hot rows x length (if theano dim ordering) or
     samples x one-hot rows x length x 1 (if tensorflow dim ordering).

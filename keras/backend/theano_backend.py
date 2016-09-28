@@ -366,6 +366,10 @@ def squeeze(x, axis):
     return T.squeeze(x)
 
 
+def set_subtensor(subtensor, newval):
+    return T.set_subtensor(subtensor, newval)
+
+
 def temporal_padding(x, padding=1):
     '''Pad the middle dimension of a 3D tensor
     with "padding" zeros left and right.

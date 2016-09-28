@@ -815,6 +815,7 @@ class MaxPoolFilter2D(Layer):
         super(MaxPoolFilter2D, self).__init__(**kwargs)
         self.input = K.placeholder(ndim=4)
         self.pool_size = tuple(pool_size)
+        self.pool_stride = self.pool_size
         self.border_mode = border_mode
         assert dim_ordering in {'tf', 'th'}, 'dim_ordering must be in {tf, th}'
         self.dim_ordering = dim_ordering
@@ -828,26 +829,32 @@ class MaxPoolFilter2D(Layer):
         #after maxpool
         X = self.get_input(train)
         pool_output = K.pool2d(X, pool_size=self.pool_size,
-                          strides=self.pool_stride,
+                          strides=self.pool_size,
                           border_mode=self.border_mode,
                           dim_ordering=self.dim_ordering, pool_mode='max')
 
         #upsample the pool output
         upsampled_pool_out = K.resize_images(
                                  X=pool_output,
-                                 height_factor=pool_size[0],
-                                 width_factor=pool_size[1],
+                                 height_factor=self.pool_size[0],
+                                 width_factor=self.pool_stride[1],
                                  dim_ordering=self.dim_ordering)
-        upsample_pool_out_size = tuple(
-            [(int((self.input_shape[i]-
-                  self.pool_size[i])/self.pool_stride[i])+1)*pool_size[i]
-             for i in range(len(self.input_shape))])
+
+        if (self.dim_ordering=='th'):
+            inp_rows_and_cols = [self.input_shape[2], self.input_shape[3]]
+        elif (self.dim_ordering=='tf'):
+            inp_rows_and_cols = [self.input_shape[1], self.input_shape[2]]
+        upsample_pool_size = tuple(
+            [(int((inp_rows_and_cols[i]-
+                  self.pool_size[i])/self.pool_stride[i])+1)*self.pool_size[i]
+             for i in range(2)])
 
         #pad on right to be same dimensions as input
-        upsampled_pool_out_padded = K.zeros(shape=self.input_shape) 
-        upsampled_pool_out_padded[:,:,
-            :self.upsample_pool_size[0],
-            :self.upsample_pool_size[1]] = upsampled_pool_out 
+        upsampled_pool_out_padded = K.zeros_like(X) 
+        upsampled_pool_out_padded = K.set_subtensor(
+            upsampled_pool_out_padded[:,:,
+                :upsample_pool_size[0],
+                :upsample_pool_size[1]], upsampled_pool_out)
 
         #only return those positions in the input that are
         #equal to the padded upsampled pooled output 
@@ -857,7 +864,6 @@ class MaxPoolFilter2D(Layer):
     def get_config(self):
         config = {'name': self.__class__.__name__,
                   'pool_size': self.pool_size,
-                  'pool_stride': self.pool_stride,
                   'border_mode': self.border_mode}
         base_config = super(MaxPoolFilter2D, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
@@ -891,13 +897,18 @@ class SoftmaxAcrossAxis(Layer):
         
         X = self.get_input(train)
         original_X_shape = X.shape
+        #permute
         X = K.permute_dimensions(X, new_axis_order) 
+        #reshape
         permuted_X_shape = X.shape
         reshape_axis_1 = (permuted_X_shape[0]*permuted_X_shape[1]
                           *permuted_X_shape[2])
-        X = K.reshape(X, (reshape_axis_1, original_X_shape[-1])) 
+        X = K.reshape(X, (reshape_axis_1, permuted_X_shape[3])) 
+        #softmax
         softmaxed_X = K.softmax(X)
+        #unreshape
         softmaxed_X = K.reshape(softmaxed_X, permuted_X_shape)
+        #unpermute
         softmaxed_X = K.permute_dimensions(softmaxed_X, inverse_axis_order)
         return softmaxed_X
 
