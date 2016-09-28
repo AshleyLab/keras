@@ -176,6 +176,7 @@ class Convolution1D(Layer):
         base_config = super(Convolution1D, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
+
 class Convolution2D(Layer):
     '''Convolution operator for filtering windows of two-dimensional inputs.
     When using this layer as the first layer in a model,
@@ -786,7 +787,7 @@ class UpSampling2D(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class MaxPoolFilter2D(Layer):
+class MaxPoolFilter2D_NonOverlapStrides(Layer):
     '''Only retain those positions that are the max in some maxpool kernel
        For now, only working with non-overlapping strides
 
@@ -803,7 +804,7 @@ class MaxPoolFilter2D(Layer):
         `(samples, rows, cols, channels)` if dim_ordering='tf'.
 
     # Arguments
-        pool_size: tuple of 2 integers. The maxpool kernel for rows and columns.
+        pool_size: tuple of 2 integers. The maxpool kernel for rows and columns
         dim_ordering: 'th' or 'tf'.
             In 'th' mode, the channels dimension (the depth)
             is at index 1, in 'tf' mode is it at index 3.
@@ -812,7 +813,7 @@ class MaxPoolFilter2D(Layer):
 
     def __init__(self, pool_size,
                  border_mode='valid', dim_ordering='th', **kwargs):
-        super(MaxPoolFilter2D, self).__init__(**kwargs)
+        super(MaxPoolFilter2D_NonOverlapStrides, self).__init__(**kwargs)
         self.input = K.placeholder(ndim=4)
         self.pool_size = tuple(pool_size)
         self.pool_stride = self.pool_size
@@ -825,8 +826,7 @@ class MaxPoolFilter2D(Layer):
         return self.input_shape
 
     def get_output(self, train=False):
-        #only retain those positions of X that have nonzero gradient
-        #after maxpool
+        #only retain those positions of X that contribute to maxpool
         X = self.get_input(train)
         pool_output = K.pool2d(X, pool_size=self.pool_size,
                           strides=self.pool_size,
@@ -851,10 +851,17 @@ class MaxPoolFilter2D(Layer):
 
         #pad on right to be same dimensions as input
         upsampled_pool_out_padded = K.zeros_like(X) 
+        if (self.dim_ordering=='th'):
+            subtensor = upsampled_pool_out_padded[:,:,
+                            :upsample_pool_size[0],
+                            :upsample_pool_size[1]]
+        else:
+            subtensor =  upsampled_pool_out_padded[:,
+                            :upsample_pool_size[0],
+                            :upsample_pool_size[1],:]
         upsampled_pool_out_padded = K.set_subtensor(
-            upsampled_pool_out_padded[:,:,
-                :upsample_pool_size[0],
-                :upsample_pool_size[1]], upsampled_pool_out)
+                                      subtensor,
+                                      upsampled_pool_out)
 
         #only return those positions in the input that are
         #equal to the padded upsampled pooled output 
@@ -865,7 +872,102 @@ class MaxPoolFilter2D(Layer):
         config = {'name': self.__class__.__name__,
                   'pool_size': self.pool_size,
                   'border_mode': self.border_mode}
-        base_config = super(MaxPoolFilter2D, self).get_config()
+        base_config = super(MaxPoolFilter2D_NonOverlapStrides,
+                            self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
+class MaxPoolFilter2D_CenteredPool(Layer):
+    '''Only retain those positions that are the max in a pool window
+    centered on the region. Only works with stride 1. For even
+    windows, the "center" is taken as the neuron to the left.
+
+    # Input shape
+        4D tensor with shape:
+        `(samples, channels, rows, cols)` if dim_ordering='th'
+        or 4D tensor with shape:
+        `(samples, rows, cols, channels)` if dim_ordering='tf'.
+
+    # Output shape
+        4D tensor with shape:
+        `(samples, channels, rows, cols)` if dim_ordering='th'
+        or 4D tensor with shape:
+        `(samples, rows, cols, channels)` if dim_ordering='tf'.
+
+    # Arguments
+        pool_size: tuple of 2 integers. The maxpool kernel for rows and columns
+        break_ties: Break ties using a small amount of random noise
+        dim_ordering: 'th' or 'tf'.
+            In 'th' mode, the channels dimension (the depth)
+            is at index 1, in 'tf' mode is it at index 3.
+    '''
+    input_ndim = 4
+
+    def __init__(self, pool_size, break_ties=True,
+                 border_mode='valid', dim_ordering='th', **kwargs):
+        super(MaxPoolFilter2D_CenteredPool, self).__init__(**kwargs)
+        self.input = K.placeholder(ndim=4)
+        self.pool_size = tuple(pool_size)
+        self.border_mode = border_mode
+        assert dim_ordering in {'tf', 'th'}, 'dim_ordering must be in {tf, th}'
+        self.dim_ordering = dim_ordering
+
+    @property
+    def output_shape(self):
+        return self.input_shape
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+
+        #break ties if self.break_ties is True
+        if (self.break_ties):
+            X_tiebreak = X + np.random.rand(*self.input_shape)*10**-6
+        else:
+            X_tiebreak = X
+
+        #do a maxpool with stride 1
+        pool_output = K.pool2d(X_to_use, pool_size=self.pool_size,
+                          strides=(1,1),
+                          border_mode=self.border_mode,
+                          dim_ordering=self.dim_ordering, pool_mode='max')
+
+        #infer the shape of the pooling output
+        if (self.dim_ordering=='th'):
+            inp_rows_and_cols = [self.input_shape[2], self.input_shape[3]]
+        elif (self.dim_ordering=='tf'):
+            inp_rows_and_cols = [self.input_shape[1], self.input_shape[2]]
+        pool_size = tuple([(inp_rows_and_cols[i]-self.pool_size[i]+1)
+                           for i in range(2)])
+
+        #determine the padding for the maxpool
+        left_pad = [int((self.pool_size[i]-1)/2) for i in range(2)]
+        right_pad = [(self.pool_size[i]-1) - maxpool_left_pad[i]
+                     for i in range(2)]
+
+        #pad pooling output to be same dimensions as input
+        pool_out_padded = K.zeros_like(X) 
+        if (self.dim_ordering=='th'):
+            subtensor = pool_out_padded[:,:,
+                         left_pad[0]:inp_rows_and_cols[0]-self.right_pad[0],
+                         left_pad[1]:inp_rows_and_cols[1]-self.right_pad[1]]
+        else:
+            subtensor =  pool_out_padded[:,
+                          left_pad[0]:inp_rows_and_cols[0]-self.right_pad[0],
+                          left_pad[1]:inp_rows_and_cols[1]-self.right_pad[1],:]
+        pool_out_padded = K.set_subtensor(subtensor, pool_output)
+
+        #only return those positions in the input that are
+        #equal to the padded pooled output, which will only happen
+        #when those positions are the max of a pool_size window
+        #centered on them.
+        output = K.switch(K.equal(pool_out_padded,X_tiebreak), X, 0) 
+        return output
+
+    def get_config(self):
+        config = {'name': self.__class__.__name__,
+                  'pool_size': self.pool_size,
+                  'border_mode': self.border_mode}
+        base_config = super(MaxPoolFilter2D_CenteredPool, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
