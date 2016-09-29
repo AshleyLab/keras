@@ -361,6 +361,230 @@ class Convolution2D(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
+class ConvDeconvSequence(Layer):
+    '''
+    '''
+    input_ndim = 4
+
+    def __init__(self, nb_filter, nb_row, nb_col,
+                 pool_over_channels, pool_length, break_ties=True,
+                 init='glorot_uniform', activation='sigmoid', weights=None,
+                 border_mode='valid', dim_ordering='th',
+                 W_regularizer=None, b_regularizer=None,
+                 W_constraint=None, b_constraint=None,
+                 W_learning_rate_multiplier=None, b_learning_rate_multiplier=None,
+                 **kwargs):
+
+        self.pool_over_channels=pool_over_channels
+        self.pool_length = pool_length
+        self.break_ties = break_ties
+
+        if border_mode not in {'valid', 'same'}:
+            raise Exception('Invalid border mode for Convolution2D:', border_mode)
+        self.nb_filter = nb_filter
+        self.nb_row = nb_row
+        self.nb_col = nb_col
+        self.init = initializations.get(init)
+        self.activation = activations.get(activation)
+        assert border_mode in {'valid', 'same'}, 'border_mode must be in {valid, same}'
+        self.border_mode = border_mode
+        self.subsample = (1,1)
+        assert dim_ordering in {'tf', 'th'}, 'dim_ordering must be in {tf, th}'
+        self.dim_ordering = dim_ordering
+
+        self.W_regularizer = regularizers.get(W_regularizer)
+        self.b_regularizer = regularizers.get(b_regularizer)
+
+        self.W_constraint = constraints.get(W_constraint)
+        self.b_constraint = constraints.get(b_constraint)
+        self.constraints = [self.W_constraint, self.b_constraint]
+
+        self.W_learning_rate_multiplier = W_learning_rate_multiplier
+        self.b_learning_rate_multiplier = b_learning_rate_multiplier
+        self.learning_rate_multipliers = [self.W_learning_rate_multiplier,\
+                                          self.b_learning_rate_multiplier]
+
+        self.initial_weights = weights
+        self.input = K.placeholder(ndim=4)
+        super(ConvDeconvSequence, self).__init__(**kwargs)
+
+    def build(self):
+        if self.dim_ordering == 'th':
+            self.channel_idx = 1
+            self.rows_idx = 2
+            self.cols_idx = 3
+            self.W_shape = (self.nb_filter, stack_size, self.nb_row, self.nb_col)
+            self.deconv_W_shape = (self.nb_row, self.nb_filter,
+                                   stack_size, self.nb_col)
+        elif self.dim_ordering == 'tf':
+            self.channel_idx = 3
+            self.rows_idx = 1
+            self.cols_idx = 2
+            self.W_shape = (self.nb_row, self.nb_col, stack_size, self.nb_filter)
+            self.deconv_W_shape = (stack_size, self.nb_col,
+                                   self.nb_filter, self.nb_row)
+        else:
+            raise Exception('Invalid dim_ordering: ' + self.dim_ordering)
+
+        stack_size = self.input_shape[self.channel_idx]
+        assert stack_size==1, "Preemptive error:"+\
+                              " code written for 1 input channels."+\
+                              " May still work but you should check."
+
+        self.W = self.init(self.W_shape)
+        self.b = K.zeros((self.nb_filter,))
+        if (self.dim_ordering == 'th'):
+            self.deconv_W = K.permute_dimensions(self.W,
+                                         (2, #rows->outchan
+                                          0, #outchan -> inchan
+                                          1, #inchan -> rows
+                                          3)
+#reverse columns (as viewing from other side) and rows
+#(which are now channels, as channels aren't subject to the reversion
+#that the rows of W were subject to)
+                                          )[::-1,:,:,::-1] 
+        elif (self.dim_ordering=='tf'):
+            self.deconv_W = K.permute_dimensions(self.W,
+                                         (2, #inchan -> rows
+                                          1, #columns in place
+                                          3, #outchan -> inchan
+                                          0) #rows -> outchan
+                                          )[:,::-1,:,::-1] #reversals
+
+        self.deconv_b = K.zeros(self.input_shape[self.rows_idx])
+        self.trainable_weights = [self.W, self.b]
+        self.regularizers = []
+
+        if self.W_regularizer:
+            self.W_regularizer.set_param(self.W)
+            self.regularizers.append(self.W_regularizer)
+
+        if self.b_regularizer:
+            self.b_regularizer.set_param(self.b)
+            self.regularizers.append(self.b_regularizer)
+
+        if self.initial_weights is not None:
+            self.set_weights(self.initial_weights)
+            del self.initial_weights
+
+    @property
+    def output_shape(self):
+        return self.input_shape
+
+    def get_conv_out_shape(self, input_shape):
+        if self.dim_ordering == 'th':
+            rows = input_shape[2]
+            cols = input_shape[3]
+        elif self.dim_ordering == 'tf':
+            rows = input_shape[1]
+            cols = input_shape[2]
+        else:
+            raise Exception('Invalid dim_ordering: ' + self.dim_ordering)
+
+        rows = conv_output_length(rows, self.nb_row,
+                                  self.border_mode, self.subsample[0])
+        cols = conv_output_length(cols, self.nb_col,
+                                  self.border_mode, self.subsample[1])
+
+        if self.dim_ordering == 'th':
+            return (input_shape[0], self.nb_filter, rows, cols)
+        elif self.dim_ordering == 'tf':
+            return (input_shape[0], rows, cols, self.nb_filter)
+        else:
+            raise Exception('Invalid dim_ordering: ' + self.dim_ordering)
+
+    def get_padding_output_shape(self, input_shape, padding):
+        if self.dim_ordering == 'th':
+            return (input_shape[0],
+                    input_shape[1],
+                    input_shape[2] + padding[0],
+                    input_shape[3] + padding[1])
+        elif self.dim_ordering == 'tf':
+            return (input_shape[0],
+                    input_shape[1] + padding[0],
+                    input_shape[2] + padding[1],
+                    input_shape[3])
+        else:
+            raise Exception('Invalid dim_ordering: ' + self.dim_ordering)
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+        
+        #apply the conv
+        conv_out = K.conv2d(X, self.W, strides=self.subsample,
+                            border_mode=self.border_mode,
+                            dim_ordering=self.dim_ordering,
+                            image_shape=self.input_shape,
+                            filter_shape=self.W_shape)
+        if self.dim_ordering == 'th':
+            output = conv_out + K.reshape(self.b, (1, self.nb_filter, 1, 1))
+        elif self.dim_ordering == 'tf':
+            output = conv_out + K.reshape(self.b, (1, 1, 1, self.nb_filter))
+        else:
+            raise Exception('Invalid dim_ordering: ' + self.dim_ordering)
+        conv_output_shape = self.get_conv_out_shape(self.input_shape)
+
+        #apply the activation
+        conv_output = self.activation(output)
+
+        #apply the centered pool filtering
+        filtered_pool_output = MaxPoolFilter2D_CenteredPool_Sequence.\
+                                get_centered_pool_output(
+                                 conv_output, break_ties=break_ties,
+                                 pool_length=self.pool_length,
+                                 pool_over_channels=self.pool_over_channels,
+                                 border_mode=self.border_mode,
+                                 dim_ordering=self.dim_ordering,
+                                 input_shape=conv_output_shape)
+       
+        #pad the ends so that the deconv has the right size
+        padding = (0,self.nb_col)
+        padded_filt_pool = K.spatial_2d_padding(filtered_pool_output,
+                        padding=padding,
+                        dim_ordering=self.dim_ordering)
+        padding_output_shape = self.get_padding_output_shape(conv_output_shape)
+
+        #apply the deconv and add bias
+        deconv_out = K.conv2d(padded_filt_pool, self.deconv_W,
+                            strides=(1,1),
+                            border_mode=self.border_mode,
+                            dim_ordering=self.dim_ordering,
+                            image_shape=padding_output_shape,
+                            filter_shape=self.deconv_W_shape)
+        if self.dim_ordering == 'th':
+            deconv_out = deconv_out + K.reshape(self.deconv_b,
+                                          (1, self.nb_filter, 1, 1))
+        elif self.dim_ordering == 'tf':
+            deconv_out = deconv_out + K.reshape(self.deconv_b,
+                                          (1, 1, 1, self.nb_filter))
+        else:
+            raise RuntimeError("Invalid dim ordering: "+self.dim_ordering)
+
+        return deconv_out
+
+    def get_config(self):
+        config = {'name': self.__class__.__name__,
+                  'nb_filter': self.nb_filter,
+                  'nb_row': self.nb_row,
+                  'nb_col': self.nb_col,
+                  'pool_over_channels': self.pool_over_channels,
+                  'pool_length': self.pool_length,
+                  'break_ties': self.break_ties,
+                  'init': self.init.__name__,
+                  'activation': self.activation.__name__,
+                  'border_mode': self.border_mode,
+                  'dim_ordering': self.dim_ordering,
+                  'W_regularizer': self.W_regularizer.get_config() if self.W_regularizer else None,
+                  'b_regularizer': self.b_regularizer.get_config() if self.b_regularizer else None,
+                  'activity_regularizer': self.activity_regularizer.get_config() if self.activity_regularizer else None,
+                  'W_constraint': self.W_constraint.get_config() if self.W_constraint else None,
+                  'b_constraint': self.b_constraint.get_config() if self.b_constraint else None,
+                  'W_learning_rate_multiplier': self.W_learning_rate_multiplier,
+                  'b_learning_rate_multiplier': self.b_learning_rate_multiplier}
+        base_config = super(Convolution2D, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
 class _Pooling1D(Layer):
     '''Abstract class for different pooling 1D layers.
     '''
@@ -878,7 +1102,7 @@ class MaxPoolFilter2D_NonOverlapStrides(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class MaxPoolFilter2D_CenteredPool(Layer):
+class MaxPoolFilter2D_CenteredPool_Sequence(Layer):
     '''Only retain those positions that are the max in a pool window
     centered on the region. Only works with stride 1. For even
     windows, the "center" is taken as the neuron to the left.
@@ -896,7 +1120,7 @@ class MaxPoolFilter2D_CenteredPool(Layer):
         `(samples, rows, cols, channels)` if dim_ordering='tf'.
 
     # Arguments
-        pool_size: tuple of 2 integers. The maxpool kernel for rows and columns
+        pool_length: length of pooling 
         break_ties: Break ties using a small amount of random noise
         dim_ordering: 'th' or 'tf'.
             In 'th' mode, the channels dimension (the depth)
@@ -904,12 +1128,13 @@ class MaxPoolFilter2D_CenteredPool(Layer):
     '''
     input_ndim = 4
 
-    def __init__(self, pool_size, break_ties=True,
+    def __init__(self, pool_length, pool_over_channels, break_ties=True,
                  border_mode='valid', dim_ordering='th', **kwargs):
-        super(MaxPoolFilter2D_CenteredPool, self).__init__(**kwargs)
+        super(MaxPoolFilter2D_CenteredPool_Sequence, self).__init__(**kwargs)
         self.input = K.placeholder(ndim=4)
         self.break_ties = break_ties
-        self.pool_size = tuple(pool_size)
+        self.pool_length = pool_length
+        self.pool_over_channels = pool_over_channels
         self.border_mode = border_mode
         assert dim_ordering in {'tf', 'th'}, 'dim_ordering must be in {tf, th}'
         self.dim_ordering = dim_ordering
@@ -920,56 +1145,94 @@ class MaxPoolFilter2D_CenteredPool(Layer):
 
     def get_output(self, train=False):
         X = self.get_input(train)
+        return self.get_centered_pool_output(X=X, break_ties=self.break_ties,
+                        pool_length=self.pool_length,
+                        pool_over_channels=self.pool_over_channels,
+                        border_mode=self.border_mode,
+                        dim_ordering=self.dim_ordering,
+                        input_shape=self.input_shape)
 
-        #break ties if self.break_ties is True
-        if (self.break_ties):
+    @staticmethod
+    def get_centered_pool_output(X, break_ties, pool_length,
+                                    pool_over_channels, border_mode,
+                                    dim_ordering, input_shape):
+        #Determine pooling settings and infer shape of pooling output
+        if (dim_ordering=='th'):
+            #sanity check that with sequence data - rows are len 1
+            assert input_shape[2]==1
+            inp_rows_and_cols = [input_shape[2], input_shape[3]]
+            num_channels = input_shape[1]
+        elif (dim_ordering=='tf'):
+            #sanity check that with sequence data - rows are len 1
+            assert input_shape[1]==1
+            inp_rows_and_cols = [input_shape[1], input_shape[2]]
+            num_channels = input_shape[3]
+
+        if (pool_over_channels):
+            if (dim_ordering=='th'): 
+                swap_channels_and_rows_order =  (0,2,1,3)
+            else:
+                swap_channels_and_rows_order = (0,3,2,1)
+            #swap channels and rows
+            X = K.permute_dimensions(X, swap_channels_and_rows_order) 
+            pool_size = (num_channels, pool_length)
+        else:
+            pool_size = (1, pool_length)
+        pool_output_size = (1, (inp_rows_and_cols[1]-pool_length+1))
+
+        #break ties if break_ties is True
+        if (break_ties):
             X_tiebreak = X + K.random_uniform(X.shape, high=10**-6)
         else:
             X_tiebreak = X
 
         #do a maxpool with stride 1
-        pool_output = K.pool2d(X_tiebreak, pool_size=self.pool_size,
+        pool_output = K.pool2d(X_tiebreak, pool_size=pool_size,
                           strides=(1,1),
-                          border_mode=self.border_mode,
-                          dim_ordering=self.dim_ordering, pool_mode='max')
-
-        #infer the shape of the pooling output
-        if (self.dim_ordering=='th'):
-            inp_rows_and_cols = [self.input_shape[2], self.input_shape[3]]
-        elif (self.dim_ordering=='tf'):
-            inp_rows_and_cols = [self.input_shape[1], self.input_shape[2]]
-        pool_size = tuple([(inp_rows_and_cols[i]-self.pool_size[i]+1)
-                           for i in range(2)])
+                          border_mode=border_mode,
+                          dim_ordering=dim_ordering, pool_mode='max')
 
         #determine the padding for the maxpool
-        left_pad = [int((self.pool_size[i]-1)/2) for i in range(2)]
-        right_pad = [(self.pool_size[i]-1) - left_pad[i]
-                     for i in range(2)]
+        left_pad = int((pool_length-1)/2)
+        right_pad = (pool_length-1) - left_pad
 
-        #pad pooling output to be same dimensions as input
-        pool_out_padded = K.zeros_like(X) 
-        if (self.dim_ordering=='th'):
-            subtensor = pool_out_padded[:,:,
-                         left_pad[0]:inp_rows_and_cols[0]-right_pad[0],
-                         left_pad[1]:inp_rows_and_cols[1]-right_pad[1]]
-        else:
-            subtensor =  pool_out_padded[:,
-                          left_pad[0]:inp_rows_and_cols[0]-right_pad[0],
-                          left_pad[1]:inp_rows_and_cols[1]-right_pad[1],:]
+        #pad pooling output to have same length as input
+        #(will broadcast along the rows dimension)
+        if (dim_ordering=='th'):
+            pool_out_padded = K.zeros_shape_is_variable(
+                                (X_tiebreak.shape[0],
+                                 X_tiebreak.shape[1], 1,
+                                 X_tiebreak.shape[3])) 
+            subtensor = pool_out_padded[:,:,:,
+                         left_pad:inp_rows_and_cols[1]-right_pad]
+        elif (dim_ordering=='tf'):
+            pool_out_padded = K.zeros_shape_is_variable(
+                                (X_tiebreak.shape[0],
+                                 1, X_tiebreak.shape[2], X_tiebreak.shape[3])) 
+            subtensor =  pool_out_padded[:,:,
+                          left_pad:inp_rows_and_cols[1]-right_pad,:]
         pool_out_padded = K.set_subtensor(subtensor, pool_output)
 
         #only return those positions in the input that are
         #equal to the padded pooled output, which will only happen
-        #when those positions are the max of a pool_size window
+        #when those positions are the max of a pool_output_size window
         #centered on them.
         output = K.switch(K.equal(pool_out_padded,X_tiebreak), X, 0) 
+
+        if (pool_over_channels):
+            #swap axes back
+            output = K.permute_dimensions(output, swap_channels_and_rows_order) 
+
         return output
 
     def get_config(self):
         config = {'name': self.__class__.__name__,
-                  'pool_size': self.pool_size,
+                  'pool_length': self.pool_length,
+                  'pool_over_channels': self.pool_over_channels,
+                  'break_ties': self.break_ties,
                   'border_mode': self.border_mode}
-        base_config = super(MaxPoolFilter2D_CenteredPool, self).get_config()
+        base_config = super(MaxPoolFilter2D_CenteredPool_Sequence,
+                            self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
