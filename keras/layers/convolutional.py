@@ -4,6 +4,7 @@ from __future__ import absolute_import
 from .. import backend as K
 from .. import activations, initializations, regularizers, constraints
 from ..layers.core import Layer
+import numpy as np
 import pdb 
 
 def conv_output_length(input_length, filter_size, border_mode, stride):
@@ -907,6 +908,7 @@ class MaxPoolFilter2D_CenteredPool(Layer):
                  border_mode='valid', dim_ordering='th', **kwargs):
         super(MaxPoolFilter2D_CenteredPool, self).__init__(**kwargs)
         self.input = K.placeholder(ndim=4)
+        self.break_ties = break_ties
         self.pool_size = tuple(pool_size)
         self.border_mode = border_mode
         assert dim_ordering in {'tf', 'th'}, 'dim_ordering must be in {tf, th}'
@@ -921,12 +923,12 @@ class MaxPoolFilter2D_CenteredPool(Layer):
 
         #break ties if self.break_ties is True
         if (self.break_ties):
-            X_tiebreak = X + np.random.rand(*self.input_shape)*10**-6
+            X_tiebreak = X + K.random_uniform(X.shape, high=10**-6)
         else:
             X_tiebreak = X
 
         #do a maxpool with stride 1
-        pool_output = K.pool2d(X_to_use, pool_size=self.pool_size,
+        pool_output = K.pool2d(X_tiebreak, pool_size=self.pool_size,
                           strides=(1,1),
                           border_mode=self.border_mode,
                           dim_ordering=self.dim_ordering, pool_mode='max')
@@ -941,19 +943,19 @@ class MaxPoolFilter2D_CenteredPool(Layer):
 
         #determine the padding for the maxpool
         left_pad = [int((self.pool_size[i]-1)/2) for i in range(2)]
-        right_pad = [(self.pool_size[i]-1) - maxpool_left_pad[i]
+        right_pad = [(self.pool_size[i]-1) - left_pad[i]
                      for i in range(2)]
 
         #pad pooling output to be same dimensions as input
         pool_out_padded = K.zeros_like(X) 
         if (self.dim_ordering=='th'):
             subtensor = pool_out_padded[:,:,
-                         left_pad[0]:inp_rows_and_cols[0]-self.right_pad[0],
-                         left_pad[1]:inp_rows_and_cols[1]-self.right_pad[1]]
+                         left_pad[0]:inp_rows_and_cols[0]-right_pad[0],
+                         left_pad[1]:inp_rows_and_cols[1]-right_pad[1]]
         else:
             subtensor =  pool_out_padded[:,
-                          left_pad[0]:inp_rows_and_cols[0]-self.right_pad[0],
-                          left_pad[1]:inp_rows_and_cols[1]-self.right_pad[1],:]
+                          left_pad[0]:inp_rows_and_cols[0]-right_pad[0],
+                          left_pad[1]:inp_rows_and_cols[1]-right_pad[1],:]
         pool_out_padded = K.set_subtensor(subtensor, pool_output)
 
         #only return those positions in the input that are
