@@ -413,6 +413,7 @@ class ConvDeconvSequence(Layer):
             self.channel_idx = 1
             self.rows_idx = 2
             self.cols_idx = 3
+            stack_size = self.input_shape[self.channel_idx]
             self.W_shape = (self.nb_filter, stack_size, self.nb_row, self.nb_col)
             self.deconv_W_shape = (self.nb_row, self.nb_filter,
                                    stack_size, self.nb_col)
@@ -420,6 +421,7 @@ class ConvDeconvSequence(Layer):
             self.channel_idx = 3
             self.rows_idx = 1
             self.cols_idx = 2
+            stack_size = self.input_shape[self.channel_idx]
             self.W_shape = (self.nb_row, self.nb_col, stack_size, self.nb_filter)
             self.deconv_W_shape = (stack_size, self.nb_col,
                                    self.nb_filter, self.nb_row)
@@ -530,7 +532,7 @@ class ConvDeconvSequence(Layer):
         #apply the centered pool filtering
         filtered_pool_output = MaxPoolFilter2D_CenteredPool_Sequence.\
                                 get_centered_pool_output(
-                                 conv_output, break_ties=break_ties,
+                                 conv_output, break_ties=self.break_ties,
                                  pool_length=self.pool_length,
                                  pool_over_channels=self.pool_over_channels,
                                  border_mode=self.border_mode,
@@ -538,11 +540,12 @@ class ConvDeconvSequence(Layer):
                                  input_shape=conv_output_shape)
        
         #pad the ends so that the deconv has the right size
-        padding = (0,self.nb_col)
+        padding = (0,self.nb_col-1)
         padded_filt_pool = K.spatial_2d_padding(filtered_pool_output,
                         padding=padding,
                         dim_ordering=self.dim_ordering)
-        padding_output_shape = self.get_padding_output_shape(conv_output_shape)
+        padding_output_shape = self.get_padding_output_shape(
+                                    conv_output_shape, padding)
 
         #apply the deconv and add bias
         deconv_out = K.conv2d(padded_filt_pool, self.deconv_W,
@@ -551,14 +554,18 @@ class ConvDeconvSequence(Layer):
                             dim_ordering=self.dim_ordering,
                             image_shape=padding_output_shape,
                             filter_shape=self.deconv_W_shape)
+        #add the bias - remember, the rows are channels for this deconv
         if self.dim_ordering == 'th':
             deconv_out = deconv_out + K.reshape(self.deconv_b,
-                                          (1, self.nb_filter, 1, 1))
+                                          (1, self.nb_row, 1, 1))
         elif self.dim_ordering == 'tf':
             deconv_out = deconv_out + K.reshape(self.deconv_b,
-                                          (1, 1, 1, self.nb_filter))
+                                          (1, 1, 1, self.nb_row))
         else:
             raise RuntimeError("Invalid dim ordering: "+self.dim_ordering)
+
+        deconv_out = ExchangeChannelsAndRows.exchange_channels_and_rows(
+                        X=deconv_out, dim_ordering=self.dim_ordering)
 
         return deconv_out
 
@@ -576,12 +583,11 @@ class ConvDeconvSequence(Layer):
                   'dim_ordering': self.dim_ordering,
                   'W_regularizer': self.W_regularizer.get_config() if self.W_regularizer else None,
                   'b_regularizer': self.b_regularizer.get_config() if self.b_regularizer else None,
-                  'activity_regularizer': self.activity_regularizer.get_config() if self.activity_regularizer else None,
                   'W_constraint': self.W_constraint.get_config() if self.W_constraint else None,
                   'b_constraint': self.b_constraint.get_config() if self.b_constraint else None,
                   'W_learning_rate_multiplier': self.W_learning_rate_multiplier,
                   'b_learning_rate_multiplier': self.b_learning_rate_multiplier}
-        base_config = super(Convolution2D, self).get_config()
+        base_config = super(ConvDeconvSequence, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
@@ -1316,8 +1322,6 @@ class ExchangeChannelsAndRows(Layer):
     def __init__(self, dim_ordering='th', **kwargs):
         super(ExchangeChannelsAndRows, self).__init__(**kwargs)
         self.dim_ordering=dim_ordering
-        self.th_permute = (0,2,1,3)
-        self.tf_permute = (0,3,2,1)
 
     @property
     def output_shape(self):
@@ -1328,10 +1332,16 @@ class ExchangeChannelsAndRows(Layer):
 
     def get_output(self, train=False):
         X = self.get_input(train)
-        if (self.dim_ordering=='th'):
-            return K.permute_dimensions(X, self.th_permute) 
-        elif (self.dim_ordering=='tf'):
-            return K.permute_dimensions(X, self.tf_permute)
+        return self.exchange_channels_and_rows(X=X,
+                        dim_ordering=self.dim_ordering)
+
+    @staticmethod
+    def exchange_channels_and_rows(X, dim_ordering):
+        if (dim_ordering=='th'):
+            new_order = (0,2,1,3)
+        elif (dim_ordering=='tf'):
+            new_order = (0,3,2,1)
+        return K.permute_dimensions(X, new_order) 
 
 
 class ZeroPadding1D(Layer):
