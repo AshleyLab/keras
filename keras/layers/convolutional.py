@@ -980,8 +980,8 @@ class PositionallyWeightedAveragePooling(Layer):
         #create a vector that represents distance from center
         dist_from_center = K.arange(0, length) 
         dist_from_center = K.set_subtensor(
-            length_arange[0:half_length],
-            length_arange[length-half_length:][::-1]) 
+            dist_from_center[0:half_length],
+            dist_from_center[length-half_length:][::-1]) 
 
         #create a matrix that represents the product of this and the
         #tau vector (tau goes across channels)
@@ -989,21 +989,21 @@ class PositionallyWeightedAveragePooling(Layer):
                                          *dist_from_center[None,:]
         #exponentiate this matrix and normalise
         dist_from_center_weights = K.exp(dist_from_center_times_tau)
-        dist_from_center_weights = dist_from_center_weights/\
-                                   K.sum(dist_from_center_weights,axis=-1)
+        dist_from_center_weights =\
+    dist_from_center_weights/K.sum(dist_from_center_weights,axis=-1)[:,None]
 
         #if tensorflow, swap the axes to put the channel axis second
         if (self.dim_ordering=='th'):
             #theano dimension ordering is: sample, channel, rows, cols
             output = K.sum(X*dist_from_center_weights[None,:,None,:],
-                        axis=-1, keep_dims=True)
+                        axis=-1, keepdims=True)
         elif (self.dim_ordering=='tf'):
             #tensorflow has channels at end, hence the need to
             #permute dimensions
             dist_from_center_weights = K.permute_dimensions(
                 dist_from_center_weights, (1,0))
             output = K.sum(X*dist_from_center_weights[None,None,:,:],
-                        axis=2, keep_dims=True) 
+                        axis=2, keepdims=True) 
         return output
 
 
