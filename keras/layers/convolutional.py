@@ -981,14 +981,28 @@ class PositionallyWeightedAveragePooling(Layer):
         dist_from_center = K.arange(0, length) 
         dist_from_center = K.set_subtensor(
             dist_from_center[0:half_length],
-            dist_from_center[length-half_length:][::-1]) 
+            dist_from_center[length-half_length:][::-1])-half_length 
+        dist_from_center = dist_from_center/K.max(dist_from_center)
 
-        #create a matrix that represents the product of this and the
-        #tau vector (tau goes across channels)
+        #calculate the function involving tau (which goes across channels) 
+
+        #straight line
+        #dist_from_center_weights =\
+        #    dist_from_center[None, :]*self.tau[:, None]
+
+        ##power
+        #dist_from_center_weights =\
+        #    K.pow(dist_from_center[None,:], (self.tau[:,None]+1))
+
+        ##temperature softmax 
         dist_from_center_times_tau = self.tau[:,None]\
                                          *dist_from_center[None,:]
-        #exponentiate this matrix and normalise
         dist_from_center_weights = K.exp(dist_from_center_times_tau)
+
+        #invert so a higher value means more downweighting
+        dist_from_center_weights =\
+    (K.max(dist_from_center_weights)-dist_from_center_weights)+K.epsilon() 
+        #normalise
         dist_from_center_weights =\
     dist_from_center_weights/K.sum(dist_from_center_weights,axis=-1)[:,None]
 
