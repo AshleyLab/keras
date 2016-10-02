@@ -201,6 +201,10 @@ def round(x):
     return T.round(x)
 
 
+def floor(x):
+    return T.floor(x)
+
+
 def pow(x, a):
     return T.pow(x, a)
 

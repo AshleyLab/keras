@@ -691,6 +691,90 @@ class WeightedPooling2D(_Pooling2D):
         return output
 
 
+class PositionallyWeightedAveragePooling(Layer):
+    '''Pooling operation that upweights hits towards the center and
+    downweights hits towards the flanks.
+
+    # Input shape
+        4D tensor with shape:
+        `(samples, channels, rows=1, cols)` if dim_ordering='th'
+        or 4D tensor with shape:
+        `(samples, rows=1, cols, channels)` if dim_ordering='tf'.
+
+    # Output shape
+        4D tensor with shape:
+        `(nb_samples, channels, rows=1, cols=1)` if dim_ordering='th'
+        or 4D tensor with shape:
+        `(samples, rows=1, cols=1, channels)` if dim_ordering='tf'.
+
+    # Arguments
+        dim_ordering: 'th' or 'tf'. In 'th' mode, the channels dimension
+            (the depth) is at index 1, in 'tf' mode is it at index 3.
+    '''
+    def __init__(self, dim_ordering='th', **kwargs):
+        self.dim_ordering = dim_ordering
+        super(PositionallyWeightedAveragePooling, self).__init__(**kwargs)
+
+    def build(self): 
+        if (self.dim_ordering=='th'): 
+            #assuming num of rows is 1, as for sequence;
+            #the positionally weighted pooling depends on dist from center
+            #in the length (columns) dimension
+            assert self.input_shape[2]==1, "num rows != 1"
+            self.tau = K.zeros((self.input_shape[1],))
+        elif (self.dim_ordering=='tf'):
+            assert self.input_shape[1]==1, "num rows != 1"
+            self.tau = self.zeros((self.input_shape[3],))
+        self.trainable_weights = [self.tau]
+    
+    @property
+    def output_shape(self):
+        if (self.dim_ordering=='th'):
+            return (self.input_shape[0], self.input_shape[1], 1, 1)
+        elif (self.dim_ordering=='tf'):
+            return (self.input_shape[0], 1, 1, self.input_shape[3])
+        else:
+            raise RuntimeError("Unsupported dim_ordering: "
+                               +str(self.dim_ordering))
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+        if (self.dim_ordering=='th'):
+            length = X.shape[3]
+        elif (self.dim_ordering=='tf'):
+            length = X.shape[2]
+        half_length = K.floor(length/2)
+
+        #create a vector that represents distance from center
+        dist_from_center = K.arange(0, length) 
+        dist_from_center = K.set_subtensor(
+            length_arange[0:half_length],
+            length_arange[length-half_length:][::-1]) 
+
+        #create a matrix that represents the product of this and the
+        #tau vector (tau goes across channels)
+        dist_from_center_times_tau = self.tau[:,None]\
+                                         *dist_from_center[None,:]
+        #exponentiate this matrix and normalise
+        dist_from_center_weights = K.exp(dist_from_center_times_tau)
+        dist_from_center_weights = dist_from_center_weights/\
+                                   K.sum(dist_from_center_weights,axis=-1)
+
+        #if tensorflow, swap the axes to put the channel axis second
+        if (self.dim_ordering=='th'):
+            #theano dimension ordering is: sample, channel, rows, cols
+            output = K.sum(X*dist_from_center_weights[None,:,None,:],
+                        axis=-1, keep_dims=True)
+        elif (self.dim_ordering=='tf'):
+            #tensorflow has channels at end, hence the need to
+            #permute dimensions
+            dist_from_center_weights = K.permute_dimensions(
+                dist_from_center_weights, (1,0))
+            output = K.sum(X*dist_from_center_weights[None,None,:,:],
+                        axis=2, keep_dims=True) 
+        return output
+
+
 class UpSampling1D(Layer):
     '''Repeat each temporal step `length` times along the time axis.
 
