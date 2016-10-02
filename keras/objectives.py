@@ -46,6 +46,11 @@ def categorical_crossentropy(y_true, y_pred):
     '''Expects a binary class matrix instead of a vector of scalar classes.
     '''
     nonAmbig=(y_true > -.5).nonzero() 
+    #print(K.eval(y_true))
+    #print(len(K.eval(nonAmbig[0])), len(K.eval(nonAmbig[1])))
+    #print(K.eval(y_pred[nonAmbig]))
+    #print(K.eval(y_true[nonAmbig]))
+    #print("out",K.eval(K.categorical_crossentropy(y_pred[nonAmbig], y_true[nonAmbig])))
     return K.categorical_crossentropy(y_pred[nonAmbig], y_true[nonAmbig])
     
 
@@ -66,6 +71,34 @@ def get_weighted_binary_crossentropy(w0_weights, w1_weights):
         return K.mean(K.binary_crossentropy(y_pred, y_true)*nonAmbigTimesWeightsPerTask, axis=-1);
     return weighted_binary_crossentropy; 
 
+
+def one_hot_rows_categorical_cross_entropy(y_true, y_pred):
+    '''expects y_true and y_pred to be of dims
+    samples x 1 x one-hot rows x length (if theano dim ordering) or
+    samples x one-hot rows x length x 1 (if tensorflow dim ordering).
+    WILL APPLY THE SOFTMAX ITSELF'''
+    if K._BACKEND=='theano':
+        y_true = y_true[:,0,:,:]
+        y_pred = y_pred[:,0,:,:]
+    elif K._BACKEND=='tensorflow':
+        y_true = y_true[:,:,:,0]
+        y_pred = y_pred[:,:,:,0]
+    samples = y_true.shape[0]
+    rows = y_true.shape[1]
+    length = y_true.shape[2]
+
+    #permute to samples x length x one-hot-rows
+    y_true = K.permute_dimensions(y_true, (0,2,1)) 
+    y_pred = K.permute_dimensions(y_pred, (0,2,1)) 
+    #reshape to (samples*length) x one-hot-rows
+    y_true = K.reshape(y_true, (samples*length, rows))
+    y_pred = K.reshape(y_pred, (samples*length, rows))
+    #apply categorical cross-entropy 
+    loss = K.categorical_crossentropy(y_pred, y_true, from_logits=False)
+    #reshape loss from (samples*length) to samples x length
+    loss = K.reshape(loss, (samples, length)) 
+    #take mean across length to return something of size samples
+    return K.mean(loss, axis=-1)
 
 
 def poisson(y_true, y_pred):

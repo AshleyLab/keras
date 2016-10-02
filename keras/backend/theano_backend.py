@@ -87,6 +87,10 @@ def zeros_like(x):
     return T.zeros_like(x)
 
 
+def zeros_shape_is_variable(shape):
+    return T.zeros(shape)
+
+
 def count_params(x):
     '''Return number of scalars in a tensor.
 
@@ -223,6 +227,22 @@ def not_equal(x, y):
     return T.neq(x, y)
 
 
+def greater(x, y):
+    return T.gt(x, y)
+
+
+def greater_equal(x, y):
+    return T.ge(x, y)
+
+
+def lesser(x, y):
+    return T.lt(x, y)
+
+
+def lesser_equal(x, y):
+    return T.le(x, y)
+
+
 def ge(x, y):
     return T.ge(x, y)
 
@@ -352,6 +372,10 @@ def squeeze(x, axis):
     '''
     x = T.addbroadcast(x, axis)
     return T.squeeze(x)
+
+
+def set_subtensor(subtensor, newval):
+    return T.set_subtensor(subtensor, newval)
 
 
 def temporal_padding(x, padding=1):
@@ -688,7 +712,7 @@ def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
 
 
 def pool2d(x, pool_size, strides=(1, 1), border_mode='valid',
-           dim_ordering='th', pool_mode='max',tau=None):
+           dim_ordering='th', pool_mode='max'):
     if border_mode == 'same':
         # TODO: add implementation for border_mode="same"
         raise Exception('border_mode="same" not supported with Theano.')

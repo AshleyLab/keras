@@ -211,6 +211,34 @@ def clip(x, min_value, max_value):
                             tf.cast(max_value, dtype=_FLOATX))
 
 
+def greater(x, y):
+    '''Element-wise truth value of (x > y).
+    Returns a bool tensor.
+    '''
+    return tf.greater(x, y)
+
+
+def greater_equal(x, y):
+    '''Element-wise truth value of (x >= y).
+    Returns a bool tensor.
+    '''
+    return tf.greater_equal(x, y)
+
+
+def lesser(x, y):
+    '''Element-wise truth value of (x < y).
+    Returns a bool tensor.
+    '''
+    return tf.less(x, y)
+
+
+def lesser_equal(x, y):
+    '''Element-wise truth value of (x <= y).
+    Returns a bool tensor.
+    '''
+    return tf.less_equal(x, y)
+
+
 def equal(x, y):
     return tf.equal(x, y)
 
