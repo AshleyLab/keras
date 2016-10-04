@@ -943,11 +943,11 @@ class PositionallyWeightedAveragePooling(Layer):
     # Arguments
         dim_ordering: 'th' or 'tf'. In 'th' mode, the channels dimension
             (the depth) is at index 1, in 'tf' mode is it at index 3.
-        tau_init: float,
-        power_init: float,
-        length_range: 5.0
-        prenorm_height_scale: float,
-        postnorm_height_scale: float
+        tau_init: float, default=2 - multiplies the exponent
+        power_init: float, defualt=2 - the power that dist is raised to  
+        length_range: 5.0 - scales dist. Seems to affect gradient strength.
+        prenorm_height_scale: float - higher val diminishes effect of bias
+        postnorm_height_scale: float - imp. to tune for good gradient descent
     '''
     def __init__(self, dim_ordering='th',
                        tau_init=2.0,
