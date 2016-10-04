@@ -953,11 +953,22 @@ class PositionallyWeightedAveragePooling(Layer):
             #the positionally weighted pooling depends on dist from center
             #in the length (columns) dimension
             assert self.input_shape[2]==1, "num rows != 1"
-            self.tau = K.zeros((self.input_shape[1],))
+            num_channels = self.input_shape[1]
         elif (self.dim_ordering=='tf'):
             assert self.input_shape[1]==1, "num rows != 1"
-            self.tau = self.zeros((self.input_shape[3],))
-        self.trainable_weights = [self.tau]
+            num_channels = self.input_shape[1]
+
+        self.bias = K.variable(np.zeros(num_channels,))
+        #self.switchpoint = K.variable(np.ones(num_channels)*0.5)
+        #self.height = K.variable(np.zeros(num_channels))
+        #self.trainable_weights = [self.base, self.height]
+        #self.trainable_weights = [self.base, self.switchpoint, self.height]
+
+        self.tau = K.variable(np.ones(num_channels,)*0.5)
+        
+        #self.height = K.variable(np.ones(num_channels,))
+        #self.height = K.variable(np.zeros(num_channels,))
+        self.trainable_weights = [self.tau, self.bias]
     
     @property
     def output_shape(self):
@@ -977,14 +988,36 @@ class PositionallyWeightedAveragePooling(Layer):
             length = X.shape[2]
         half_length = K.floor(length/2)
 
-        #create a vector that represents distance from center
-        dist_from_center = K.arange(0, length) 
-        dist_from_center = K.set_subtensor(
-            dist_from_center[0:half_length],
-            dist_from_center[length-half_length:][::-1])-half_length 
-        dist_from_center = dist_from_center/K.max(dist_from_center)
+        #create a vector that represents fractional proximity to center
+        prox_to_center = K.arange(0, length) 
+        prox_to_center = K.set_subtensor(
+            prox_to_center[0:half_length],
+            prox_to_center[length-half_length:][::-1])
+        #flip so closer to cneter is larger
+        prox_to_center = K.max(prox_to_center) - prox_to_center
+        prox_to_center = 5.0*prox_to_center/K.max(prox_to_center)
 
-        #calculate the function involving tau (which goes across channels) 
+        #exponent
+        cell_weights = K.exp((prox_to_center[None, :])
+                             *self.tau[:, None])
+
+        #exponent + slope
+        #cell_weights = K.exp((prox_to_center[None, :])
+        #                     *self.tau[:, None]) +\
+        #               prox_to_center[None, :]*self.height[:,None] 
+
+        #sigmoid
+        #cell_weights = K.sigmoid(prox_to_center[None, :] - self.tau[:,None])\
+        #               *self.height[:,None]
+
+        #add bias
+        cell_weights = cell_weights - K.min(cell_weights)\
+                       + K.epsilon() + self.bias[:,None]
+
+
+        #dist_from_center_weights =\
+        #    (K.maximum(self.switchpoint[:,None]-dist_from_center[None,:],0)
+        #     *(self.height[:,None]/(K.epsilon()+self.switchpoint[:,None])))
 
         #straight line
         #dist_from_center_weights =\
@@ -995,28 +1028,34 @@ class PositionallyWeightedAveragePooling(Layer):
         #    K.pow(dist_from_center[None,:], (self.tau[:,None]+1))
 
         ##temperature softmax 
-        dist_from_center_times_tau = self.tau[:,None]\
-                                         *dist_from_center[None,:]
-        dist_from_center_weights = K.exp(dist_from_center_times_tau)
+        #dist_from_center_times_tau = self.tau[:,None]\
+        #                                 *dist_from_center[None,:]
+        #dist_from_center_weights = K.exp(dist_from_center_times_tau)
 
         #invert so a higher value means more downweighting
-        dist_from_center_weights =\
-    (K.max(dist_from_center_weights)-dist_from_center_weights)+K.epsilon() 
+        #dist_from_center_weights =\
+    #(K.max(dist_from_center_weights)-dist_from_center_weights)+K.epsilon() 
+        
+        #non-negativity
+        #dist_from_center_weights =\
+        #    (dist_from_center_weights-K.min(dist_from_center_weights))\
+        #    + self.base[:,None]
+
         #normalise
-        dist_from_center_weights =\
-    dist_from_center_weights/K.sum(dist_from_center_weights,axis=-1)[:,None]
+        cell_weights =\
+    cell_weights/(K.sum(cell_weights,axis=-1)[:,None])
 
         #if tensorflow, swap the axes to put the channel axis second
         if (self.dim_ordering=='th'):
             #theano dimension ordering is: sample, channel, rows, cols
-            output = K.sum(X*dist_from_center_weights[None,:,None,:],
+            output = K.sum(X*cell_weights[None,:,None,:],
                         axis=-1, keepdims=True)
         elif (self.dim_ordering=='tf'):
             #tensorflow has channels at end, hence the need to
             #permute dimensions
-            dist_from_center_weights = K.permute_dimensions(
-                dist_from_center_weights, (1,0))
-            output = K.sum(X*dist_from_center_weights[None,None,:,:],
+            cell_weights = K.permute_dimensions(
+                cell_weights, (1,0))
+            output = K.sum(X*cell_weights[None,None,:,:],
                         axis=2, keepdims=True) 
         return output
 
