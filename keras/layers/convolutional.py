@@ -964,11 +964,12 @@ class PositionallyWeightedAveragePooling(Layer):
         #self.trainable_weights = [self.base, self.height]
         #self.trainable_weights = [self.base, self.switchpoint, self.height]
 
-        self.tau = K.variable(np.ones(num_channels,)*0.5)
+        self.tau = K.variable(np.ones(num_channels,)*1.0)
+        self.power = K.variable(np.ones(num_channels,)*2.0)
         
         #self.height = K.variable(np.ones(num_channels,))
         #self.height = K.variable(np.zeros(num_channels,))
-        self.trainable_weights = [self.tau, self.bias]
+        self.trainable_weights = [self.tau, self.power, self.bias]
     
     @property
     def output_shape(self):
@@ -1005,7 +1006,9 @@ class PositionallyWeightedAveragePooling(Layer):
 
         #exponent
         #the 150 in the front is also there to boost the gradients...
-        cell_weights = 150*K.exp(-prox_to_center[None, :]*self.tau[:, None])
+        cell_weights = 150*K.exp(
+            -K.pow(prox_to_center[None, :], self.power[:,None])\
+             /self.tau[:, None])
 
         #exponent + slope
         #cell_weights = K.exp((prox_to_center[None, :])
