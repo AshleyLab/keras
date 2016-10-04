@@ -993,13 +993,19 @@ class PositionallyWeightedAveragePooling(Layer):
         prox_to_center = K.set_subtensor(
             prox_to_center[0:half_length],
             prox_to_center[length-half_length:][::-1])
-        #flip so closer to cneter is larger
-        prox_to_center = K.max(prox_to_center) - prox_to_center
+
+        #let center have val of 0
+        prox_to_center = prox_to_center - K.min(prox_to_center)
+
+        ##flip so closer to center is larger
+        #prox_to_center = K.max(prox_to_center) - prox_to_center
+
+        #the 5.0 is there to boost the gradients...
         prox_to_center = 5.0*prox_to_center/K.max(prox_to_center)
 
         #exponent
-        cell_weights = K.exp((prox_to_center[None, :])
-                             *self.tau[:, None])
+        #the 150 in the front is also there to boost the gradients...
+        cell_weights = 150*K.exp(-prox_to_center[None, :]*self.tau[:, None])
 
         #exponent + slope
         #cell_weights = K.exp((prox_to_center[None, :])
