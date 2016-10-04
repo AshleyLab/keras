@@ -906,6 +906,7 @@ class WeightedPooling2D(_Pooling2D):
         self.init = initializations.get(init)
         assert strides==pool_size, 'for weighted pooling, the pool stride must equal to the pool width (1) ' 
         #assert strides==1, 'for weighted global average pooling, set stride=1 and stride_widths =1'
+
     def build(self): 
         self.tau = self.init((self.input_shape[1],))
         self.trainable_weights = [self.tau]
@@ -942,9 +943,25 @@ class PositionallyWeightedAveragePooling(Layer):
     # Arguments
         dim_ordering: 'th' or 'tf'. In 'th' mode, the channels dimension
             (the depth) is at index 1, in 'tf' mode is it at index 3.
+        tau_init: float,
+        power_init: float,
+        length_range: 5.0
+        prenorm_height_scale: float,
+        postnorm_height_scale: float
     '''
-    def __init__(self, dim_ordering='th', **kwargs):
+    def __init__(self, dim_ordering='th',
+                       tau_init=2.0,
+                       power_init=2.0,
+                       length_range=5.0,
+                       prenorm_height_scale=500.0,
+                       postnorm_height_scale=0.4,
+                       **kwargs):
         self.dim_ordering = dim_ordering
+        self.tau_init = tau_init
+        self.power_init = power_init
+        self.length_range = length_range
+        self.prenorm_height_scale = prenorm_height_scale
+        self.postnorm_height_scale = postnorm_height_scale
         super(PositionallyWeightedAveragePooling, self).__init__(**kwargs)
 
     def build(self): 
@@ -964,8 +981,8 @@ class PositionallyWeightedAveragePooling(Layer):
         #self.trainable_weights = [self.base, self.height]
         #self.trainable_weights = [self.base, self.switchpoint, self.height]
 
-        self.tau = K.variable(np.ones(num_channels,)*1.0)
-        self.power = K.variable(np.ones(num_channels,)*2.0)
+        self.tau = K.variable(np.ones(num_channels,)*self.tau_init)
+        self.power = K.variable(np.ones(num_channels,)*self.power_init)
         
         #self.height = K.variable(np.ones(num_channels,))
         #self.height = K.variable(np.zeros(num_channels,))
@@ -1001,58 +1018,24 @@ class PositionallyWeightedAveragePooling(Layer):
         ##flip so closer to center is larger
         #prox_to_center = K.max(prox_to_center) - prox_to_center
 
-        #the 5.0 is there to boost the gradients...
-        prox_to_center = 5.0*prox_to_center/K.max(prox_to_center)
+        prox_to_center = self.length_range*prox_to_center/K.max(prox_to_center)
 
         #exponent
-        #the 150 in the front is also there to boost the gradients...
-        cell_weights = 150*K.exp(
-            -K.pow(prox_to_center[None, :], self.power[:,None])\
-             /self.tau[:, None])
-
-        #exponent + slope
-        #cell_weights = K.exp((prox_to_center[None, :])
-        #                     *self.tau[:, None]) +\
-        #               prox_to_center[None, :]*self.height[:,None] 
-
-        #sigmoid
-        #cell_weights = K.sigmoid(prox_to_center[None, :] - self.tau[:,None])\
-        #               *self.height[:,None]
+        #prenorm_height_scale influences impact of tau and power relative to bias
+        cell_weights = self.prenorm_height_scale*K.exp(
+            -K.pow(prox_to_center[None, :], self.power[:,None])*self.tau[:, None])
 
         #add bias
-        cell_weights = cell_weights - K.min(cell_weights)\
-                       + K.epsilon() + self.bias[:,None]
+        cell_weights = cell_weights - K.min(cell_weights) +\
+                        K.epsilon() + self.bias[:,None]
 
-
-        #dist_from_center_weights =\
-        #    (K.maximum(self.switchpoint[:,None]-dist_from_center[None,:],0)
-        #     *(self.height[:,None]/(K.epsilon()+self.switchpoint[:,None])))
-
-        #straight line
-        #dist_from_center_weights =\
-        #    dist_from_center[None, :]*self.tau[:, None]
-
-        ##power
-        #dist_from_center_weights =\
-        #    K.pow(dist_from_center[None,:], (self.tau[:,None]+1))
-
-        ##temperature softmax 
-        #dist_from_center_times_tau = self.tau[:,None]\
-        #                                 *dist_from_center[None,:]
-        #dist_from_center_weights = K.exp(dist_from_center_times_tau)
-
-        #invert so a higher value means more downweighting
-        #dist_from_center_weights =\
-    #(K.max(dist_from_center_weights)-dist_from_center_weights)+K.epsilon() 
-        
-        #non-negativity
-        #dist_from_center_weights =\
-        #    (dist_from_center_weights-K.min(dist_from_center_weights))\
-        #    + self.base[:,None]
-
-        #normalise
+        #normalise so that the extreme is 1
+        #postnorm_height_scale is just relevant for signal feeding to
+        #higher layer, making sure it isn't overwhelming
+        #(eg: postnorm_height_scale=1 seems to totally disable learning...)
         cell_weights =\
-    cell_weights/(K.sum(cell_weights,axis=-1)[:,None])
+        self.postnorm_height_scale*cell_weights/\
+        (K.abs(K.max(cell_weights,axis=-1)[:,None]))
 
         #if tensorflow, swap the axes to put the channel axis second
         if (self.dim_ordering=='th'):
@@ -1067,6 +1050,18 @@ class PositionallyWeightedAveragePooling(Layer):
             output = K.sum(X*cell_weights[None,None,:,:],
                         axis=2, keepdims=True) 
         return output
+
+    def get_config(self):
+        config = {'name': self.__class__.__name__,
+                  'tau_init': self.tau_init,
+                  'power_init': self.power_init,
+                  'length_range': self.length_range,
+                  'prenorm_height_scale': self.prenorm_height_scale,
+                  'postnorm_height_scale': self.postnorm_height_scale,
+                  'dim_ordering': self.dim_ordering}
+        base_config = super(PositionallyWeightedAveragePooling, self)\
+                      .get_config()
+        return dict(list(base_config.items()) + list(config.items()))
 
 
 class UpSampling1D(Layer):
