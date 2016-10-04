@@ -947,21 +947,21 @@ class PositionallyWeightedAveragePooling(Layer):
         power_init: float, defualt=2 - the power that dist is raised to  
         length_range: 5.0 - scales dist. Seems to affect gradient strength.
         prenorm_height_scale: float - higher val diminishes effect of bias
-        postnorm_height_scale: float - imp. to tune for good gradient descent
+        postnorm_height_init: float - overall scaling of channel signal
     '''
     def __init__(self, dim_ordering='th',
                        tau_init=2.0,
                        power_init=2.0,
                        length_range=5.0,
                        prenorm_height_scale=500.0,
-                       postnorm_height_scale=0.4,
+                       postnorm_height_init=0.4,
                        **kwargs):
         self.dim_ordering = dim_ordering
         self.tau_init = tau_init
         self.power_init = power_init
         self.length_range = length_range
         self.prenorm_height_scale = prenorm_height_scale
-        self.postnorm_height_scale = postnorm_height_scale
+        self.postnorm_height_init = postnorm_height_init
         super(PositionallyWeightedAveragePooling, self).__init__(**kwargs)
 
     def build(self): 
@@ -983,10 +983,13 @@ class PositionallyWeightedAveragePooling(Layer):
 
         self.tau = K.variable(np.ones(num_channels,)*self.tau_init)
         self.power = K.variable(np.ones(num_channels,)*self.power_init)
+        self.postnorm_height = K.variable(np.ones(num_channels,)
+                                 *self.postnorm_height_init)
         
         #self.height = K.variable(np.ones(num_channels,))
         #self.height = K.variable(np.zeros(num_channels,))
-        self.trainable_weights = [self.tau, self.power, self.bias]
+        self.trainable_weights = [self.tau, self.power,
+                                  self.bias, self.postnorm_height]
     
     @property
     def output_shape(self):
@@ -1030,12 +1033,9 @@ class PositionallyWeightedAveragePooling(Layer):
                         K.epsilon() + self.bias[:,None]
 
         #normalise so that the extreme is 1
-        #postnorm_height_scale is just relevant for signal feeding to
-        #higher layer, making sure it isn't overwhelming
-        #(eg: postnorm_height_scale=1 seems to totally disable learning...)
         cell_weights =\
-        self.postnorm_height_scale*cell_weights/\
-        (K.abs(K.max(cell_weights,axis=-1)[:,None]))
+        self.postnorm_height[:,None]*(cell_weights/\
+        (K.abs(K.max(cell_weights,axis=-1)[:,None])))
 
         #if tensorflow, swap the axes to put the channel axis second
         if (self.dim_ordering=='th'):
@@ -1053,11 +1053,8 @@ class PositionallyWeightedAveragePooling(Layer):
 
     def get_config(self):
         config = {'name': self.__class__.__name__,
-                  'tau_init': self.tau_init,
-                  'power_init': self.power_init,
                   'length_range': self.length_range,
                   'prenorm_height_scale': self.prenorm_height_scale,
-                  'postnorm_height_scale': self.postnorm_height_scale,
                   'dim_ordering': self.dim_ordering}
         base_config = super(PositionallyWeightedAveragePooling, self)\
                       .get_config()
