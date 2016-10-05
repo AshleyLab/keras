@@ -1035,7 +1035,7 @@ class PositionallyWeightedAveragePooling(Layer):
         #normalise so that the extreme is 1
         cell_weights =\
         self.postnorm_height[:,None]*(cell_weights/\
-        (K.abs(K.max(cell_weights,axis=-1)[:,None])))
+        (K.max(K.abs(cell_weights),axis=-1)[:,None]))
 
         #if tensorflow, swap the axes to put the channel axis second
         if (self.dim_ordering=='th'):
@@ -1057,6 +1057,112 @@ class PositionallyWeightedAveragePooling(Layer):
                   'prenorm_height_scale': self.prenorm_height_scale,
                   'dim_ordering': self.dim_ordering}
         base_config = super(PositionallyWeightedAveragePooling, self)\
+                      .get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
+class Dev_PositionallyWeightedAveragePooling(Layer):
+    '''
+    '''
+    def __init__(self, dim_ordering='th',
+                       length_range=5.0,
+                       prenorm_height_scale=500.0,
+                       **kwargs):
+        self.dim_ordering = dim_ordering
+        self.length_range = length_range
+        self.prenorm_height_scale = prenorm_height_scale
+        super(Dev_PositionallyWeightedAveragePooling, self).__init__(**kwargs)
+
+    def build(self): 
+        if (self.dim_ordering=='th'): 
+            #assuming num of rows is 1, as for sequence;
+            #the positionally weighted pooling depends on dist from center
+            #in the length (columns) dimension
+            assert self.input_shape[2]==1, "num rows != 1"
+            num_channels = self.input_shape[1]
+        elif (self.dim_ordering=='tf'):
+            assert self.input_shape[1]==1, "num rows != 1"
+            num_channels = self.input_shape[1]
+
+        #0.1 to 5.1
+        self.tau = K.variable((np.random.rand(num_channels,)*5)+0.1)
+        #1 to 3
+        self.power = K.variable((np.random.rand(num_channels,)*2)+1)
+        #just zeros
+        self.bias = K.variable(np.zeros(num_channels,))
+        #-0.5 to 0.5
+        self.postnorm_height = K.variable((1.0*np.random.rand(num_channels,))-0.5)
+        
+        self.trainable_weights = [self.tau, self.power,
+                                  self.bias, self.postnorm_height]
+        self.constraints = [None, constraints.nonneg(), None, None] 
+    
+    @property
+    def output_shape(self):
+        if (self.dim_ordering=='th'):
+            return (self.input_shape[0], self.input_shape[1], 1, 1)
+        elif (self.dim_ordering=='tf'):
+            return (self.input_shape[0], 1, 1, self.input_shape[3])
+        else:
+            raise RuntimeError("Unsupported dim_ordering: "
+                               +str(self.dim_ordering))
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+        if (self.dim_ordering=='th'):
+            length = X.shape[3]
+        elif (self.dim_ordering=='tf'):
+            length = X.shape[2]
+        half_length = K.floor(length/2)
+
+        #create a vector that represents fractional proximity to center
+        prox_to_center = K.arange(0, length) 
+        prox_to_center = K.set_subtensor(
+            prox_to_center[0:half_length],
+            prox_to_center[length-half_length:][::-1])
+
+        #let center have val of 0
+        prox_to_center = prox_to_center - K.min(prox_to_center)
+
+        ##flip so closer to center is larger
+        #prox_to_center = K.max(prox_to_center) - prox_to_center
+
+        prox_to_center = self.length_range*prox_to_center/K.max(prox_to_center)
+
+        #exponent
+        #prenorm_height_scale influences impact of tau and power relative to bias
+        cell_weights = self.prenorm_height_scale*K.exp(
+            -K.pow(prox_to_center[None, :], self.power[:,None])*self.tau[:, None])
+
+        #add bias
+        cell_weights = cell_weights - K.min(cell_weights) +\
+                        K.epsilon() + self.bias[:,None]
+
+        #normalise so that the extreme is 1
+        cell_weights =\
+        self.postnorm_height[:,None]*(cell_weights/\
+        (K.max(K.abs(cell_weights),axis=-1)[:,None]))
+
+        #if tensorflow, swap the axes to put the channel axis second
+        if (self.dim_ordering=='th'):
+            #theano dimension ordering is: sample, channel, rows, cols
+            output = K.sum(X*cell_weights[None,:,None,:],
+                        axis=-1, keepdims=True)
+        elif (self.dim_ordering=='tf'):
+            #tensorflow has channels at end, hence the need to
+            #permute dimensions
+            cell_weights = K.permute_dimensions(
+                cell_weights, (1,0))
+            output = K.sum(X*cell_weights[None,None,:,:],
+                        axis=2, keepdims=True) 
+        return output
+
+    def get_config(self):
+        config = {'name': self.__class__.__name__,
+                  'length_range': self.length_range,
+                  'prenorm_height_scale': self.prenorm_height_scale,
+                  'dim_ordering': self.dim_ordering}
+        base_config = super(Dev_PositionallyWeightedAveragePooling, self)\
                       .get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
