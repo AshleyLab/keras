@@ -1156,7 +1156,7 @@ class Dev_PositionallyWeightedAveragePooling(Layer):
 
         #combine the two with mixing coefficient
         mixing_coeff = K.sigmoid(self.mixing_coeff_logit)
-        combined_weights = mixing_coeff[:,None]*150*central_weights +\
+        combined_weights = mixing_coeff[:,None]*1.0*central_weights +\
                            (1-mixing_coeff)[:,None]*flank_weights
 
         #normalise so that the extreme is "postnorm_height"
