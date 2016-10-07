@@ -1026,7 +1026,7 @@ class PositionallyWeightedAveragePooling(Layer):
             -K.pow(dist_to_center[None, :], self.power[:,None])*self.tau[:, None])
 
         #add bias
-        cell_weights = cell_weights - K.min(cell_weights) +\
+        cell_weights = cell_weights - K.min(cell_weights,axis=-1)[:,None] +\
                         K.epsilon() + self.bias[:,None]
 
         #normalise so that the extreme is 1
@@ -1085,30 +1085,30 @@ class Dev_PositionallyWeightedAveragePooling(Layer):
         self.power = K.variable((np.random.rand(num_channels,)*2)+1)
         
         #function for the flanks
-        self.flank_log_multiplier = K.variable(np.zeros(num_channels,))
+        self.flank_multiplier = K.variable(np.ones(num_channels,))
         #just zeros
         self.flank_bias = K.variable(np.zeros(num_channels,))
 
         #mixing_coeff_logit
-        self.mixing_coeff_logit = K.variable(np.random.rand(num_channels,))
+        self.mixing_coeff_logit = K.variable(np.zeros(num_channels,))
 
         #postnorm height does not affect relative weighting but seems
         #to be an important parameter...guess it's an easy way to upweight/
         #downweight a channel for all the subsequence fc neurons, when there
         #is actually an fc layer next
-        #0.1 to 0.5
-        self.postnorm_height = K.variable((0.4*np.random.rand(num_channels,))+0.1)
+        #-0.5 to 0.5
+        self.postnorm_height = K.variable(np.random.rand(num_channels,)-0.5)
 
         self.trainable_weights = [self.tau,
                                   self.power,
                                   self.postnorm_height,
-                                  self.flank_log_multiplier,
+                                  self.flank_multiplier,
                                   self.flank_bias,
                                   self.mixing_coeff_logit]
         self.constraints = [None, #tau
                             constraints.nonneg(), #power
                             None, #postnorm_height
-                            constraints.nonneg(), #flank_log_multiplier
+                            constraints.nonneg(), #flank_multiplier
                             None, #flank_bias
                             None, #mixing_coeff_logit
                            ] 
@@ -1147,16 +1147,24 @@ class Dev_PositionallyWeightedAveragePooling(Layer):
             -K.pow(dist_to_center[None, :], self.power[:,None])
              *self.tau[:, None])
         #subtract min
-        central_weights = central_weights - K.min(central_weights)
+        central_weights = central_weights\
+                            - K.min(central_weights,axis=-1)[:,None]
+        #rescale so max is 1
+        central_weights = central_weights/\
+                           (K.max(central_weights,axis=-1)[:,None]+K.epsilon())
 
         #flank function
-        flank_weights = -K.maximum(
-         K.log(1 + dist_to_center[None, :]*self.flank_log_multiplier[:,None])
-          - self.flank_bias[:,None], 0.0) 
+        #flank_weights = K.maximum(
+        # K.log(1 + dist_to_center[None, :]*self.flank_multiplier[:,None])
+        #  + self.flank_bias[:,None], 0.0) 
+
+        flank_weights = -0.2*K.maximum(
+            K.sigmoid(dist_to_center[None,:]*self.flank_multiplier[:,None])
+            + self.flank_bias[:,None], 0.0)
 
         #combine the two with mixing coefficient
         mixing_coeff = K.sigmoid(self.mixing_coeff_logit)
-        combined_weights = mixing_coeff[:,None]*1.0*central_weights +\
+        combined_weights = mixing_coeff[:,None]*central_weights +\
                            (1-mixing_coeff)[:,None]*flank_weights
 
         #normalise so that the extreme is "postnorm_height"
