@@ -361,7 +361,22 @@ class Convolution2D(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class ConvDeconvSequence(Layer):
+def get_padding_output_shape(input_shape, padding, dim_ordering):
+    if dim_ordering == 'th':
+        return (input_shape[0],
+                input_shape[1],
+                input_shape[2] + padding[0],
+                input_shape[3] + padding[1])
+    elif dim_ordering == 'tf':
+        return (input_shape[0],
+                input_shape[1] + padding[0],
+                input_shape[2] + padding[1],
+                input_shape[3])
+    else:
+        raise Exception('Invalid dim_ordering: ' + dim_ordering)
+
+
+class ConvDeconvSequence(Layer, PaddingOutputShapeFuncMixin):
     '''
     '''
     input_ndim = 4
@@ -495,20 +510,6 @@ class ConvDeconvSequence(Layer):
         else:
             raise Exception('Invalid dim_ordering: ' + self.dim_ordering)
 
-    def get_padding_output_shape(self, input_shape, padding):
-        if self.dim_ordering == 'th':
-            return (input_shape[0],
-                    input_shape[1],
-                    input_shape[2] + padding[0],
-                    input_shape[3] + padding[1])
-        elif self.dim_ordering == 'tf':
-            return (input_shape[0],
-                    input_shape[1] + padding[0],
-                    input_shape[2] + padding[1],
-                    input_shape[3])
-        else:
-            raise Exception('Invalid dim_ordering: ' + self.dim_ordering)
-
     def get_output(self, train=False):
         X = self.get_input(train)
         
@@ -519,20 +520,21 @@ class ConvDeconvSequence(Layer):
                             image_shape=self.input_shape,
                             filter_shape=self.W_shape)
         if self.dim_ordering == 'th':
-            output = conv_out + K.reshape(self.b, (1, self.nb_filter, 1, 1))
+            conv_out = conv_out + K.reshape(self.b, (1, self.nb_filter, 1, 1))
         elif self.dim_ordering == 'tf':
-            output = conv_out + K.reshape(self.b, (1, 1, 1, self.nb_filter))
+            conv_out = conv_out + K.reshape(self.b, (1, 1, 1, self.nb_filter))
         else:
             raise Exception('Invalid dim_ordering: ' + self.dim_ordering)
         conv_output_shape = self.get_conv_out_shape(self.input_shape)
 
         #apply the activation
-        conv_output = self.activation(output)
+        conv_out = self.activation(conv_out)
 
         #apply the centered pool filtering
         filtered_pool_output = MaxPoolFilter2D_CenteredPool_Sequence.\
                                 get_centered_pool_output(
-                                 conv_output, break_ties=self.break_ties,
+                                 conv_out,
+                                 break_ties=self.break_ties,
                                  pool_length=self.pool_length,
                                  pool_over_channels=self.pool_over_channels,
                                  border_mode=self.border_mode,
@@ -541,19 +543,20 @@ class ConvDeconvSequence(Layer):
        
         #pad the ends so that the deconv has the right size
         padding = (0,self.nb_col-1)
-        padded_filt_pool = K.spatial_2d_padding(filtered_pool_output,
-                        padding=padding,
-                        dim_ordering=self.dim_ordering)
-        padding_output_shape = self.get_padding_output_shape(
-                                    conv_output_shape, padding)
+        padded_filtered_conv_out = K.spatial_2d_padding(filtered_pool_output,
+                                    padding=padding,
+                                    dim_ordering=self.dim_ordering)
+        padding_output_shape = get_padding_output_shape(
+                                conv_output_shape, padding, self.dim_ordering)
 
         #apply the deconv and add bias
-        deconv_out = K.conv2d(padded_filt_pool, self.deconv_W,
-                            strides=(1,1),
-                            border_mode=self.border_mode,
-                            dim_ordering=self.dim_ordering,
-                            image_shape=padding_output_shape,
-                            filter_shape=self.deconv_W_shape)
+        deconv_out = K.conv2d(padded_filtered_conv_out,
+                              self.deconv_W,
+                              strides=(1,1),
+                              border_mode=self.border_mode,
+                              dim_ordering=self.dim_ordering,
+                              image_shape=padding_output_shape,
+                              filter_shape=self.deconv_W_shape)
         #add the bias - remember, the rows are channels for this deconv
         if self.dim_ordering == 'th':
             deconv_out = deconv_out + K.reshape(self.deconv_b,
@@ -1058,14 +1061,321 @@ class PositionallyWeightedAveragePooling(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class Dev_PositionallyWeightedAveragePooling(Layer):
+class Dev_ConvToFcNormalDistAlongLen(Layer):
+    '''
+    '''
+    def __init__(self, num_outputs,
+                       dim_ordering='th',
+                       **kwargs):
+        self.num_outputs = num_outputs
+        self.dim_ordering = dim_ordering
+        super(Dev_ConvToFcNormalDistAlongLen, self)\
+              .__init__(**kwargs)
+
+    def build(self): 
+        if (self.dim_ordering=='th'): 
+            #assuming num of rows is 1, as for sequence;
+            #the positionally weighted pooling depends on dist from center
+            #in the length (columns) dimension
+            assert self.input_shape[2]==1, "num rows != 1"
+            num_channels = self.input_shape[1]
+            length = self.input_shape[3]
+        elif (self.dim_ordering=='tf'):
+            assert self.input_shape[1]==1, "num rows != 1"
+            num_channels = self.input_shape[1]
+            length = self.input_shape[2]
+ 
+        self.tau = K.variable(np.ones((num_channels, self.num_outputs))*0.0)
+        self.bias = K.variable(np.random.random(
+                               (num_channels, self.num_outputs))*-0.1)
+        self.height_scale = K.variable(np.random.random(
+                              (num_channels, self.num_outputs))*0.01)
+        self.trainable_weights = [self.tau, self.bias, self.height_scale]
+        self.constraints = [constraints.nonneg(), None, None]
+    
+    @property
+    def output_shape(self):
+        return (self.input_shape[0], self.num_outputs)
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+        if (self.dim_ordering=='th'):
+            num_channels = self.input_shape[1]
+            length = self.input_shape[3]
+        elif (self.dim_ordering=='tf'):
+            num_channels = self.input_shape[3]
+            length = self.input_shape[2]
+        half_length = int(length/2.0)
+
+        #create a vector that represents fractional distance to center
+        dist_to_center = np.arange(0, length)*1.0
+        dist_to_center[0:half_length] =\
+         dist_to_center[length-half_length:][::-1]
+        #let center have val of 0
+        dist_to_center = dist_to_center - np.min(dist_to_center)
+        dist_to_center = dist_to_center/np.max(dist_to_center)
+        dist_to_center = dist_to_center*1.0
+
+        cell_weights = (K.exp(-K.pow(dist_to_center[None,:,None],2.0)
+                              *self.tau[:,None,:]*100.0)
+                        - self.bias[:,None,:])*self.height_scale[:,None,:]
+        cell_weights = K.reshape(cell_weights,
+                                 (num_channels*length, self.num_outputs))
+
+        #if tensorflow, swap the axes to put the channel axis second
+        if (self.dim_ordering=='th'):
+            #theano dimension ordering is: sample, channel, rows, cols
+            X_reshape = K.reshape(X, (X.shape[0],num_channels*length)) 
+        elif (self.dim_ordering=='tf'):
+            #tensorflow has channels at end, hence the need to
+            #permute dimensions to put the channels first to the reshape
+            #puts things in the right order
+            X_reshape = K.permute_dimensions(X, (0,3,1,2))
+            X_reshape = K.reshape(X_reshape,
+                                  (X_reshape.shape[0], num_channels*length))
+        output = K.dot(X_reshape, cell_weights) 
+        return output
+
+    def get_config(self):
+        config = {'name': self.__class__.__name__,
+                  'num_outputs': self.num_outputs, 
+                  'dim_ordering': self.dim_ordering}
+        base_config =\
+         super(Dev_ConvToFcNormalDistAlongLen, self)\
+              .get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
+class ConvToFcInterpAlongLen(Layer):
+    '''
+    '''
+    def __init__(self, num_outputs,
+                       points_to_learn = [0.0, 0.1, 0.3, 0.6, 1.0],
+                       dim_ordering='th',
+                       **kwargs):
+        self.num_outputs = num_outputs
+        self.points_to_learn = points_to_learn
+        self.dim_ordering = dim_ordering
+        super(ConvToFcInterpAlongLen, self)\
+              .__init__(**kwargs)
+
+    def build(self): 
+        if (self.dim_ordering=='th'): 
+            #assuming num of rows is 1, as for sequence;
+            #the positionally weighted pooling depends on dist from center
+            #in the length (columns) dimension
+            assert self.input_shape[2]==1, "num rows != 1"
+            num_channels = self.input_shape[1]
+            length = self.input_shape[3]
+        elif (self.dim_ordering=='tf'):
+            assert self.input_shape[1]==1, "num rows != 1"
+            num_channels = self.input_shape[1]
+            length = self.input_shape[2]
+ 
+        #initialize the params
+        fan_in = length*num_channels
+        fan_out = self.num_outputs
+        s = np.sqrt(6. / (fan_in*fan_out))*0.1
+        shape_to_init = (num_channels, len(self.points_to_learn),
+                         self.num_outputs)
+        self.interpolation_params =\
+         initializations.uniform(shape_to_init, s, name=None)
+        #self.interpolation_params = K.variable(np.ones(shape_to_init)*0.001)
+
+        self.trainable_weights = [self.interpolation_params]
+        self.constraints = []
+    
+    @property
+    def output_shape(self):
+        return (self.input_shape[0], self.num_outputs)
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+        if (self.dim_ordering=='th'):
+            num_channels = self.input_shape[1]
+            length = self.input_shape[3]
+        elif (self.dim_ordering=='tf'):
+            num_channels = self.input_shape[3]
+            length = self.input_shape[2]
+        half_length = int(length/2.0)
+
+        #create a vector that represents fractional distance to center
+        dist_to_center = np.arange(0, length)*1.0
+        dist_to_center[0:half_length] =\
+         dist_to_center[length-half_length:][::-1]
+        #let center have val of 0
+        dist_to_center = dist_to_center - np.min(dist_to_center)
+        dist_to_center = dist_to_center/np.max(dist_to_center)
+        #the 1.0-K.epsilon() is so last index is < 1.0 so it will get
+        #counted as < highthresh when highthresh=1.0
+        dist_to_center = dist_to_center*(1.0-K.epsilon())
+
+        cell_weights = K.zeros_unshared(
+                        (num_channels, length, self.num_outputs))
+        #sum up the linear functions for the different ranges
+        for (i,(lowthresh, highthresh)) in\
+            enumerate(zip(self.points_to_learn[:(len(self.points_to_learn)-1)],
+                          self.points_to_learn[1:])):
+            lowthresh_param = self.interpolation_params[:,i] 
+            highthresh_param = self.interpolation_params[:,i+1]
+
+            mask = (dist_to_center < highthresh)*(dist_to_center >= lowthresh)
+            x_vals = (dist_to_center-lowthresh)/(highthresh-lowthresh)
+            func = (lowthresh_param[:,None,:] +
+                    ((highthresh_param[:,None,:]-lowthresh_param[:,None,:])
+                     *x_vals[None,:,None]))
+            cell_weights += func*mask[None,:,None]
+
+        cell_weights = K.reshape(cell_weights,
+                                 (num_channels*length, self.num_outputs))
+
+        #if tensorflow, swap the axes to put the channel axis second
+        if (self.dim_ordering=='th'):
+            #theano dimension ordering is: sample, channel, rows, cols
+            X_reshape = K.reshape(X, (X.shape[0],num_channels*length)) 
+        elif (self.dim_ordering=='tf'):
+            #tensorflow has channels at end, hence the need to
+            #permute dimensions to put the channels first to the reshape
+            #puts things in the right order
+            X_reshape = K.permute_dimensions(X, (0,3,1,2))
+            X_reshape = K.reshape(X_reshape,
+                                  (X_reshape.shape[0], num_channels*length))
+        output = K.dot(X_reshape, cell_weights) 
+        return output
+
+    def get_config(self):
+        config = {'name': self.__class__.__name__,
+                  'num_outputs': self.num_outputs, 
+                  'points_to_learn': self.points_to_learn,
+                  'dim_ordering': self.dim_ordering}
+        base_config =\
+         super(ConvToFcInterpAlongLen, self)\
+              .get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
+class Dev_Interpolation_PositionallyWeightedAveragePooling(Layer):
+    '''
+    '''
+    def __init__(self, dim_ordering='th',
+                       points_to_learn = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0],
+                       **kwargs):
+        self.dim_ordering = dim_ordering
+        self.points_to_learn = points_to_learn
+        super(Dev_Interpolation_PositionallyWeightedAveragePooling, self)\
+              .__init__(**kwargs)
+
+    def build(self): 
+        if (self.dim_ordering=='th'): 
+            #assuming num of rows is 1, as for sequence;
+            #the positionally weighted pooling depends on dist from center
+            #in the length (columns) dimension
+            assert self.input_shape[2]==1, "num rows != 1"
+            num_channels = self.input_shape[1]
+            length = self.input_shape[3]
+        elif (self.dim_ordering=='tf'):
+            assert self.input_shape[1]==1, "num rows != 1"
+            num_channels = self.input_shape[1]
+            length = self.input_shape[2]
+
+        #initialize the params
+        s = np.sqrt(6. / (length*num_channels))*2
+        self.interpolation_params =\
+        initializations.uniform((num_channels, len(self.points_to_learn)),
+                                 s, name=None)
+        #self.interpolation_params =\
+        # K.variable((1.0/length)*(np.ones((num_channels, len(self.points_to_learn)))))
+        self.trainable_weights = [self.interpolation_params]
+        self.constraints = [] 
+
+    
+    @property
+    def output_shape(self):
+        if (self.dim_ordering=='th'):
+            num_channels = self.input_shape[1]
+            return (self.input_shape[0], num_channels, 1, 1)
+        elif (self.dim_ordering=='tf'):
+            num_channels = self.input_shape[3]
+            return (self.input_shape[0], 1, 1, num_channels)
+        else:
+            raise RuntimeError("Unsupported dim_ordering: "
+                               +str(self.dim_ordering))
+
+    def get_output(self, train=False):
+        X = self.get_input(train)
+        if (self.dim_ordering=='th'):
+            num_channels = self.input_shape[1]
+            length = self.input_shape[3]
+        elif (self.dim_ordering=='tf'):
+            num_channels = self.input_shape[3]
+            length = self.input_shape[2]
+        half_length = int(length/2.0)
+
+        #create a vector that represents fractional distance to center
+        dist_to_center = np.arange(0, length)*1.0
+        dist_to_center[0:half_length] =\
+         dist_to_center[length-half_length:][::-1]
+        #let center have val of 0
+        dist_to_center = dist_to_center - np.min(dist_to_center)
+        dist_to_center = dist_to_center/np.max(dist_to_center)
+        #the 1.0-K.epsilon() is so last index is < 1.0 so it will get
+        #counted as < highthresh when highthresh=1.0
+        dist_to_center = dist_to_center*(1.0-K.epsilon())
+
+        cell_weights = K.zeros_unshared((num_channels, length))
+        #sum up the linear functions for the different ranges
+        for (i,(lowthresh, highthresh)) in\
+            enumerate(zip(self.points_to_learn[:(len(self.points_to_learn)-1)],
+                          self.points_to_learn[1:])):
+            lowthresh_param = self.interpolation_params[:,i] 
+            highthresh_param = self.interpolation_params[:,i+1]
+
+            mask = (dist_to_center < highthresh)*(dist_to_center >= lowthresh)
+            x_vals = (dist_to_center-lowthresh)/(highthresh-lowthresh)
+            func = (lowthresh_param[:,None] +
+                    ((highthresh_param[:,None]-lowthresh_param[:,None])
+                     *x_vals[None,:]))
+            cell_weights += func*mask[None,:]
+
+        #if tensorflow, swap the axes to put the channel axis second
+        if (self.dim_ordering=='th'):
+            #theano dimension ordering is: sample, channel, rows, cols
+            output = K.sum(X*cell_weights[None,:,None,:],
+                           axis=-1, keepdims=True)
+        elif (self.dim_ordering=='tf'):
+            #tensorflow has channels at end, hence the need to
+            #permute dimensions
+            cell_weights = K.permute_dimensions(cell_weights, (1,0))
+            output = K.sum(X*cell_weights[None,None,:,:],
+                           axis=2, keepdims=True) 
+        return output
+
+    def get_config(self):
+        config = {'name': self.__class__.__name__,
+                  'dim_ordering': self.dim_ordering,
+                  'points_to_learn': self.points_to_learn}
+        base_config =\
+         super(Dev_Interpolation_PositionallyWeightedAveragePooling, self)\
+              .get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
+class Dev_Func_PositionallyWeightedAveragePooling(Layer):
     '''
     '''
     def __init__(self, dim_ordering='th',
                        length_range=5.0,
+                       tau_init=0.5,
+                       power_init=2.0,
+                       flank_multiplier_init=1.0,
+                       postnorm_height_init=0.2,
                        **kwargs):
         self.dim_ordering = dim_ordering
         self.length_range = length_range
+        self.tau_init = tau_init
+        self.power_init = power_init
+        self.flank_multiplier_init = flank_multiplier_init
+        self.postnorm_height_init = postnorm_height_init
         super(Dev_PositionallyWeightedAveragePooling, self).__init__(**kwargs)
 
     def build(self): 
@@ -1079,13 +1389,12 @@ class Dev_PositionallyWeightedAveragePooling(Layer):
             assert self.input_shape[1]==1, "num rows != 1"
             num_channels = self.input_shape[1]
 
-        #1 to 3
-        self.tau = K.variable((np.random.rand(num_channels,)*2)+1)
-        #1 to 3
-        self.power = K.variable((np.random.rand(num_channels,)*2)+1)
+        self.tau = K.variable(self.tau_init*np.ones(num_channels,))
+        self.power = K.variable(self.power_init*np.ones(num_channels,))
         
         #function for the flanks
-        self.flank_multiplier = K.variable(np.ones(num_channels,))
+        self.flank_multiplier = K.variable(
+            self.flank_multiplier_init*np.ones(num_channels,))
         #just zeros
         self.flank_bias = K.variable(np.zeros(num_channels,))
 
@@ -1096,21 +1405,21 @@ class Dev_PositionallyWeightedAveragePooling(Layer):
         #to be an important parameter...guess it's an easy way to upweight/
         #downweight a channel for all the subsequence fc neurons, when there
         #is actually an fc layer next
-        #-0.5 to 0.5
-        self.postnorm_height = K.variable(np.random.rand(num_channels,)-0.5)
+        self.postnorm_height = K.variable(np.ones(num_channels,)
+                                *self.postnorm_height_init)
 
         self.trainable_weights = [self.tau,
-                                  self.power,
-                                  self.postnorm_height,
+                                  self.power, 
                                   self.flank_multiplier,
                                   self.flank_bias,
-                                  self.mixing_coeff_logit]
+                                  self.mixing_coeff_logit,
+                                  self.postnorm_height]
         self.constraints = [None, #tau
                             constraints.nonneg(), #power
-                            None, #postnorm_height
                             constraints.nonneg(), #flank_multiplier
                             None, #flank_bias
                             None, #mixing_coeff_logit
+                            None, #postnorm_height
                            ] 
     
     @property
@@ -1380,7 +1689,7 @@ class MaxPoolFilter2D_NonOverlapStrides(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class MaxPoolFilter2D_CenteredPool_Sequence(Layer):
+class MaxPoolFilter2D_CenteredPool_Sequence(Layer, PaddingOutputShapeFuncMixin):
     '''Only retain those positions that are the max in a pool window
     centered on the region. Only works with stride 1. For even
     windows, the "center" is taken as the neuron to the left.
@@ -1434,6 +1743,7 @@ class MaxPoolFilter2D_CenteredPool_Sequence(Layer):
     def get_centered_pool_output(X, break_ties, pool_length,
                                     pool_over_channels, border_mode,
                                     dim_ordering, input_shape):
+
         #Determine pooling settings and infer shape of pooling output
         if (dim_ordering=='th'):
             #sanity check that with sequence data - rows are len 1
@@ -1464,38 +1774,36 @@ class MaxPoolFilter2D_CenteredPool_Sequence(Layer):
         else:
             X_tiebreak = X
 
+        #pad the input so that the ends are included in the pooling
+        padding = (0,int(pool_length/2))
+        padded_X_tiebreak = K.spatial_2d_padding(X_tiebreak,
+                                    padding=padding,
+                                    dim_ordering=dim_ordering)
+        padded_X_tiebreak_shape = get_padding_output_shape(
+                                    X_tiebreak, padding, dim_ordering)
+
         #do a maxpool with stride 1
-        pool_output = K.pool2d(X_tiebreak, pool_size=pool_size,
+        pool_output = K.pool2d(padded_X_tiebreak, pool_size=pool_size,
                           strides=(1,1),
                           border_mode=border_mode,
                           dim_ordering=dim_ordering, pool_mode='max')
 
-        #determine the padding for the maxpool
-        left_pad = int((pool_length-1)/2)
-        right_pad = (pool_length-1) - left_pad
-
-        #pad pooling output to have same length as input
-        #(will broadcast along the rows dimension)
-        if (dim_ordering=='th'):
-            pool_out_padded = K.zeros_shape_is_variable(
-                                (X_tiebreak.shape[0],
-                                 X_tiebreak.shape[1], 1,
-                                 X_tiebreak.shape[3])) 
-            subtensor = pool_out_padded[:,:,:,
-                         left_pad:inp_rows_and_cols[1]-right_pad]
-        elif (dim_ordering=='tf'):
-            pool_out_padded = K.zeros_shape_is_variable(
-                                (X_tiebreak.shape[0],
-                                 1, X_tiebreak.shape[2], X_tiebreak.shape[3])) 
-            subtensor =  pool_out_padded[:,:,
-                          left_pad:inp_rows_and_cols[1]-right_pad,:]
-        pool_out_padded = K.set_subtensor(subtensor, pool_output)
+        #if the maxpool length was even, will need to shave off one unit
+        #from the front to make things line up
+        #note that this implies that when the maxpool lenght is even,
+        #the "centering" on a neuron means the maxpool view of the underlying
+        #layer is right-heavy
+        if (pool_length%2==0):
+            if (dim_ordering=='th'):
+                pool_output = pool_output[:,:,:,1:]
+            elif (dim_ordering=='tf'):
+                pool_output = pool_output[:,:,1:,:]
 
         #only return those positions in the input that are
         #equal to the padded pooled output, which will only happen
         #when those positions are the max of a pool_output_size window
         #centered on them.
-        output = K.switch(K.equal(pool_out_padded,X_tiebreak), X, 0) 
+        output = K.switch(K.equal(pool_output,X_tiebreak), X, 0) 
 
         if (pool_over_channels):
             #swap axes back
