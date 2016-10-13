@@ -365,12 +365,12 @@ def get_padding_output_shape(input_shape, padding, dim_ordering):
     if dim_ordering == 'th':
         return (input_shape[0],
                 input_shape[1],
-                input_shape[2] + padding[0],
-                input_shape[3] + padding[1])
+                input_shape[2] + 2*padding[0],
+                input_shape[3] + 2*padding[1])
     elif dim_ordering == 'tf':
         return (input_shape[0],
-                input_shape[1] + padding[0],
-                input_shape[2] + padding[1],
+                input_shape[1] + 2*padding[0],
+                input_shape[2] + 2*padding[1],
                 input_shape[3])
     else:
         raise Exception('Invalid dim_ordering: ' + dim_ordering)
@@ -520,20 +520,20 @@ class ConvDeconvSequence(Layer, PaddingOutputShapeFuncMixin):
                             image_shape=self.input_shape,
                             filter_shape=self.W_shape)
         if self.dim_ordering == 'th':
-            conv_out = conv_out + K.reshape(self.b, (1, self.nb_filter, 1, 1))
+            conv_out2 = conv_out + self.b[None,:,None,None]
         elif self.dim_ordering == 'tf':
-            conv_out = conv_out + K.reshape(self.b, (1, 1, 1, self.nb_filter))
+            conv_out2 = conv_out + self.b[None,None,None,:]
         else:
             raise Exception('Invalid dim_ordering: ' + self.dim_ordering)
         conv_output_shape = self.get_conv_out_shape(self.input_shape)
 
         #apply the activation
-        conv_out = self.activation(conv_out)
+        conv_out3 = self.activation(conv_out2)
 
         #apply the centered pool filtering
         filtered_pool_output = MaxPoolFilter2D_CenteredPool_Sequence.\
                                 get_centered_pool_output(
-                                 conv_out,
+                                 conv_out3,
                                  break_ties=self.break_ties,
                                  pool_length=self.pool_length,
                                  pool_over_channels=self.pool_over_channels,
@@ -1780,7 +1780,9 @@ class MaxPoolFilter2D_CenteredPool_Sequence(Layer, PaddingOutputShapeFuncMixin):
                                     padding=padding,
                                     dim_ordering=dim_ordering)
         padded_X_tiebreak_shape = get_padding_output_shape(
-                                    X_tiebreak, padding, dim_ordering)
+                                    input_shape, padding, dim_ordering)
+        print(input_shape)
+        print(padded_X_tiebreak_shape)
 
         #do a maxpool with stride 1
         pool_output = K.pool2d(padded_X_tiebreak, pool_size=pool_size,
@@ -1793,16 +1795,19 @@ class MaxPoolFilter2D_CenteredPool_Sequence(Layer, PaddingOutputShapeFuncMixin):
         #note that this implies that when the maxpool lenght is even,
         #the "centering" on a neuron means the maxpool view of the underlying
         #layer is right-heavy
-        if (pool_length%2==0):
-            if (dim_ordering=='th'):
+        if (dim_ordering=='th'): 
+            if (pool_length%2==0):
                 pool_output = pool_output[:,:,:,1:]
-            elif (dim_ordering=='tf'):
+            #also do a hacky thing to make axes broadcastable
+            pool_output = K.squeeze(pool_output, axis=2)
+            pool_output = pool_output[:,:,None,:]
+        elif (dim_ordering=='tf'):
+            if (pool_length%2==0):
                 pool_output = pool_output[:,:,1:,:]
-
-        #only return those positions in the input that are
-        #equal to the padded pooled output, which will only happen
-        #when those positions are the max of a pool_output_size window
-        #centered on them.
+            #also do a hacky thing to make axes broadcastable
+            pool_output = K.squeeze(pool_output, axis=1)
+            pool_output = pool_output[:,None,:,:]
+                
         output = K.switch(K.equal(pool_output,X_tiebreak), X, 0) 
 
         if (pool_over_channels):
