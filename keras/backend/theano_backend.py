@@ -87,7 +87,7 @@ def zeros_like(x):
     return T.zeros_like(x)
 
 
-def zeros_shape_is_variable(shape):
+def zeros_unshared(shape):
     return T.zeros(shape)
 
 

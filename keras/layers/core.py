@@ -241,6 +241,7 @@ class Layer(object):
                                              str(len(weights)) + ' provided weights)')
         for p, w in zip(params, weights):
             if K.get_value(p).shape != w.shape:
+                print(type(self))
                 raise Exception('Layer shape %s not compatible with weight shape %s.' % (K.get_value(p).shape, w.shape))
             K.set_value(p, w)
 
