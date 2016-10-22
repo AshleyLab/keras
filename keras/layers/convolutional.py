@@ -376,7 +376,7 @@ def get_padding_output_shape(input_shape, padding, dim_ordering):
         raise Exception('Invalid dim_ordering: ' + dim_ordering)
 
 
-class ConvDeconvSequence(Layer, PaddingOutputShapeFuncMixin):
+class ConvDeconvSequence(Layer):
     '''
     '''
     input_ndim = 4
@@ -1689,7 +1689,7 @@ class MaxPoolFilter2D_NonOverlapStrides(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class MaxPoolFilter2D_CenteredPool_Sequence(Layer, PaddingOutputShapeFuncMixin):
+class MaxPoolFilter2D_CenteredPool_Sequence(Layer):
     '''Only retain those positions that are the max in a pool window
     centered on the region. Only works with stride 1. For even
     windows, the "center" is taken as the neuron to the left.
