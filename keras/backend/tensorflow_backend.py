@@ -8,11 +8,12 @@ _SESSION = None
 
 
 def _get_session():
+    
     global _SESSION
     if _SESSION is None:
         _SESSION = tf.Session('')
     return _SESSION
-
+    
 
 def _set_session(session):
     global _SESSION
