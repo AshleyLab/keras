@@ -7,14 +7,13 @@ import numpy as np
 import copy
 import inspect
 import types as python_types
-import marshal
-import sys
 import warnings
 
 from .. import backend as K
 from .. import activations, initializations, regularizers, constraints
 from ..engine import InputSpec, Layer, Merge
 from ..regularizers import ActivityRegularizer
+from ..utils.generic_utils import func_dump, func_load
 
 
 class Masking(Layer):
@@ -82,15 +81,114 @@ class Dropout(Layer):
         self.supports_masking = True
         super(Dropout, self).__init__(**kwargs)
 
+    def _get_noise_shape(self, x):
+        return None
+
     def call(self, x, mask=None):
         if 0. < self.p < 1.:
-            x = K.in_train_phase(K.dropout(x, level=self.p), x)
+            noise_shape = self._get_noise_shape(x)
+            x = K.in_train_phase(K.dropout(x, self.p, noise_shape), x)
         return x
 
     def get_config(self):
         config = {'p': self.p}
         base_config = super(Dropout, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
+
+class SpatialDropout2D(Dropout):
+    '''This version performs the same function as Dropout, however it drops
+    entire 2D feature maps instead of individual elements. If adjacent pixels
+    within feature maps are strongly correlated (as is normally the case in
+    early convolution layers) then regular dropout will not regularize the
+    activations and will otherwise just result in an effective learning rate
+    decrease. In this case, SpatialDropout2D will help promote independence
+    between feature maps and should be used instead.
+
+    # Arguments
+        p: float between 0 and 1. Fraction of the input units to drop.
+        dim_ordering: 'th' or 'tf'. In 'th' mode, the channels dimension
+            (the depth) is at index 1, in 'tf' mode is it at index 3.
+            It defaults to the `image_dim_ordering` value found in your
+            Keras config file at `~/.keras/keras.json`.
+            If you never set it, then it will be "tf".
+
+    # Input shape
+        4D tensor with shape:
+        `(samples, channels, rows, cols)` if dim_ordering='th'
+        or 4D tensor with shape:
+        `(samples, rows, cols, channels)` if dim_ordering='tf'.
+
+    # Output shape
+        Same as input
+
+    # References
+        - [Efficient Object Localization Using Convolutional Networks](https://arxiv.org/pdf/1411.4280.pdf)
+    '''
+    def __init__(self, p, dim_ordering='default', **kwargs):
+        if dim_ordering == 'default':
+            dim_ordering = K.image_dim_ordering()
+        assert dim_ordering in {'tf', 'th'}, 'dim_ordering must be in {tf, th}'
+        self.dim_ordering = dim_ordering
+        super(SpatialDropout2D, self).__init__(p, **kwargs)
+
+    def _get_noise_shape(self, x):
+        input_shape = K.shape(x)
+        if self.dim_ordering == 'th':
+            noise_shape = (input_shape[0], input_shape[1], 1, 1)
+        elif self.dim_ordering == 'tf':
+            noise_shape = (input_shape[0], 1, 1, input_shape[3])
+        else:
+            raise Exception('Invalid dim_ordering: ' + self.dim_ordering)
+        return noise_shape
+
+
+class SpatialDropout3D(Dropout):
+    '''This version performs the same function as Dropout, however it drops
+    entire 3D feature maps instead of individual elements. If adjacent voxels
+    within feature maps are strongly correlated (as is normally the case in
+    early convolution layers) then regular dropout will not regularize the
+    activations and will otherwise just result in an effective learning rate
+    decrease. In this case, SpatialDropout3D will help promote independence
+    between feature maps and should be used instead.
+
+    # Arguments
+        p: float between 0 and 1. Fraction of the input units to drop.
+        dim_ordering: 'th' or 'tf'.
+            In 'th' mode, the channels dimension (the depth)
+            is at index 1, in 'tf' mode is it at index 4.
+            It defaults to the `image_dim_ordering` value found in your
+            Keras config file at `~/.keras/keras.json`.
+            If you never set it, then it will be "tf".
+
+    # Input shape
+        5D tensor with shape:
+        `(samples, channels, dim1, dim2, dim3)` if dim_ordering='th'
+        or 5D tensor with shape:
+        `(samples, dim1, dim2, dim3, channels)` if dim_ordering='tf'.
+
+    # Output shape
+        Same as input
+
+    # References
+        - [Efficient Object Localization Using Convolutional Networks](https://arxiv.org/pdf/1411.4280.pdf)
+    '''
+    def __init__(self, p, dim_ordering='default', **kwargs):
+        if dim_ordering == 'default':
+            dim_ordering = K.image_dim_ordering()
+        assert dim_ordering in {'tf', 'th'}, 'dim_ordering must be in {tf, th}'
+        self.dim_ordering = dim_ordering
+        super(SpatialDropout3D, self).__init__(p, **kwargs)
+
+    def _get_noise_shape(self, x):
+        input_shape = K.shape(x)
+        if self.dim_ordering == 'th':
+            noise_shape = (input_shape[0], input_shape[1], 1, 1, 1)
+        elif self.dim_ordering == 'tf':
+            noise_shape = (input_shape[0], 1, 1, 1, input_shape[4])
+        else:
+            raise Exception('Invalid dim_ordering: ' + self.dim_ordering)
+        return noise_shape
 
 
 class Activation(Layer):
@@ -385,16 +483,16 @@ class Lambda(Layer):
 
     # Arguments
         function: The function to be evaluated.
-            Takes one argument: the output of previous layer
+            Takes input tensor as first argument.
         output_shape: Expected output shape from function.
             Can be a tuple or function.
-            If a tuple, it only specifies the first dimension onward; 
+            If a tuple, it only specifies the first dimension onward;
                  sample dimension is assumed either the same as the input:
                  `output_shape = (input_shape[0], ) + output_shape`
                  or, the input is `None` and the sample dimension is also `None`:
                  `output_shape = (None, ) + output_shape`
-            If a function, it specifies the entire shape as a function of 
-                 the input shape: `output_shape = f(input_shape)`
+            If a function, it specifies the entire shape as a function of the
+            input shape: `output_shape = f(input_shape)`
         arguments: optional dictionary of keyword arguments to be passed
             to the function.
 
@@ -439,7 +537,10 @@ class Lambda(Layer):
             # otherwise, we default to the input shape
             return input_shape
         elif type(self._output_shape) in {tuple, list}:
-            nb_samples = input_shape[0] if input_shape else None
+            if type(input_shape) is list:
+                nb_samples = input_shape[0][0]
+            else:
+                nb_samples = input_shape[0] if input_shape else None
             return (nb_samples,) + tuple(self._output_shape)
         else:
             shape = self._output_shape(input_shape)
@@ -455,23 +556,15 @@ class Lambda(Layer):
         return self.function(x, **arguments)
 
     def get_config(self):
-        py3 = sys.version_info[0] == 3
-
         if isinstance(self.function, python_types.LambdaType):
-            if py3:
-                function = marshal.dumps(self.function.__code__).decode('raw_unicode_escape')
-            else:
-                function = marshal.dumps(self.function.func_code).decode('raw_unicode_escape')
+            function = func_dump(self.function)
             function_type = 'lambda'
         else:
             function = self.function.__name__
             function_type = 'function'
 
         if isinstance(self._output_shape, python_types.LambdaType):
-            if py3:
-                output_shape = marshal.dumps(self._output_shape.__code__).decode('raw_unicode_escape')
-            else:
-                output_shape = marshal.dumps(self._output_shape.func_code).decode('raw_unicode_escape')
+            output_shape = func_dump(self._output_shape)
             output_shape_type = 'lambda'
         elif callable(self._output_shape):
             output_shape = self._output_shape.__name__
@@ -494,8 +587,7 @@ class Lambda(Layer):
         if function_type == 'function':
             function = globals()[config['function']]
         elif function_type == 'lambda':
-            function = marshal.loads(config['function'].encode('raw_unicode_escape'))
-            function = python_types.FunctionType(function, globals())
+            function = func_load(config['function'], globs=globals())
         else:
             raise Exception('Unknown function type: ' + function_type)
 
@@ -503,8 +595,7 @@ class Lambda(Layer):
         if output_shape_type == 'function':
             output_shape = globals()[config['output_shape']]
         elif output_shape_type == 'lambda':
-            output_shape = marshal.loads(config['output_shape'].encode('raw_unicode_escape'))
-            output_shape = python_types.FunctionType(output_shape, globals())
+            output_shape = func_load(config['output_shape'], globs=globals())
         else:
             output_shape = config['output_shape']
 
@@ -563,6 +654,11 @@ class Dense(Layer):
         input_dim: dimensionality of the input (integer).
             This argument (or alternatively, the keyword argument `input_shape`)
             is required when using this layer as the first layer in a model.
+        W_learning_rate_multiplier: Multiplier (between 0.0 and 1.0) applied to the 
+            learning rate of the main weights matrix.
+        b_learning_rate_multiplier: Multiplier (between 0.0 and 1.0) applied to the 
+            learning rate of the bias.
+
 
     # Input shape
         2D tensor with shape: `(nb_samples, input_dim)`.
@@ -570,10 +666,13 @@ class Dense(Layer):
     # Output shape
         2D tensor with shape: `(nb_samples, output_dim)`.
     '''
-    def __init__(self, output_dim, init='glorot_uniform', activation='linear', weights=None,
+    def __init__(self, output_dim, init='glorot_uniform',
+                 activation=None, weights=None,
                  W_regularizer=None, b_regularizer=None, activity_regularizer=None,
                  W_constraint=None, b_constraint=None,
-                 bias=True, input_dim=None, **kwargs):
+                 bias=True, input_dim=None,
+                 W_learning_rate_multiplier=None,b_learning_rate_multiplier=None,
+                 **kwargs):
         self.init = initializations.get(init)
         self.activation = activations.get(activation)
         self.output_dim = output_dim
@@ -590,6 +689,12 @@ class Dense(Layer):
         self.initial_weights = weights
         self.input_spec = [InputSpec(ndim=2)]
 
+        if not bias:
+            if b_learning_rate_multiplier is not None:
+                raise Exception('b_learning_rate_multiplier provided with no bias.')
+        self.W_learning_rate_multiplier = W_learning_rate_multiplier
+        self.b_learning_rate_multiplier = b_learning_rate_multiplier
+        
         if self.input_dim:
             kwargs['input_shape'] = (self.input_dim,)
         super(Dense, self).__init__(**kwargs)
@@ -628,9 +733,16 @@ class Dense(Layer):
         if self.bias and self.b_constraint:
             self.constraints[self.b] = self.b_constraint
 
+        self.multipliers = {}
+        if self.W_learning_rate_multiplier is not None:
+            self.multipliers[self.W] = self.W_learning_rate_multiplier
+        if (self.bias is not None) and (self.b_learning_rate_multiplier is not None):
+            self.multipliers[self.b] = self.b_learning_rate_multiplier
+            
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
             del self.initial_weights
+        self.built = True
 
     def call(self, x, mask=None):
         output = K.dot(x, self.W)
@@ -652,7 +764,10 @@ class Dense(Layer):
                   'W_constraint': self.W_constraint.get_config() if self.W_constraint else None,
                   'b_constraint': self.b_constraint.get_config() if self.b_constraint else None,
                   'bias': self.bias,
-                  'input_dim': self.input_dim}
+                  'input_dim': self.input_dim,
+                  'W_learning_rate_multiplier': self.W_learning_rate_multiplier if self.W_learning_rate_multiplier else None,
+                  'b_learning_rate_multiplier': self.b_learning_rate_multiplier if self.b_learning_rate_multiplier else None
+        }
         base_config = super(Dense, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
@@ -728,7 +843,10 @@ class MaxoutDense(Layer):
         input_dim: dimensionality of the input (integer).
             This argument (or alternatively, the keyword argument `input_shape`)
             is required when using this layer as the first layer in a model.
-
+       W_learning_rate_multiplier: Multiplier (between 0.0 and 1.0) applied to the 
+            learning rate of the main weights matrix.
+       b_learning_rate_multiplier: Multiplier (between 0.0 and 1.0) applied to the 
+            learning rate of the bias.
     # Input shape
         2D tensor with shape: `(nb_samples, input_dim)`.
 
@@ -742,7 +860,9 @@ class MaxoutDense(Layer):
                  init='glorot_uniform', weights=None,
                  W_regularizer=None, b_regularizer=None, activity_regularizer=None,
                  W_constraint=None, b_constraint=None,
-                 bias=True, input_dim=None, **kwargs):
+                 bias=True, input_dim=None,
+                 W_learning_rate_multiplier=None,b_learning_rate_multiplier=None,
+                 **kwargs):
         self.output_dim = output_dim
         self.nb_feature = nb_feature
         self.init = initializations.get(init)
@@ -759,6 +879,12 @@ class MaxoutDense(Layer):
         self.input_spec = [InputSpec(ndim=2)]
 
         self.input_dim = input_dim
+
+        if not bias:
+            if b_learning_rate_multiplier is not None:
+                raise Exception('b_learning_rate_multiplier provided with no bias.')
+        self.W_learning_rate_multiplier = W_learning_rate_multiplier
+        self.b_learning_rate_multiplier = b_learning_rate_multiplier        
         if self.input_dim:
             kwargs['input_shape'] = (self.input_dim,)
         super(MaxoutDense, self).__init__(**kwargs)
@@ -795,10 +921,15 @@ class MaxoutDense(Layer):
             self.constraints[self.W] = self.W_constraint
         if self.bias and self.b_constraint:
             self.constraints[self.b] = self.b_constraint
-
+        self.multipliers = {}
+        if self.W_learning_rate_multiplier is not None:
+            self.multipliers[self.W] = self.W_learning_rate_multiplier
+        if (self.bias is not None) and (self.b_learning_rate_multiplier is not None):
+            self.multipliers[self.b] = self.b_learning_rate_multiplier
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
             del self.initial_weights
+        self.built = True
 
     def get_output_shape_for(self, input_shape):
         assert input_shape and len(input_shape) == 2
@@ -822,7 +953,10 @@ class MaxoutDense(Layer):
                   'W_constraint': self.W_constraint.get_config() if self.W_constraint else None,
                   'b_constraint': self.b_constraint.get_config() if self.b_constraint else None,
                   'bias': self.bias,
-                  'input_dim': self.input_dim}
+                  'input_dim': self.input_dim,
+                  'W_learning_rate_multiplier': self.W_learning_rate_multiplier if self.W_learning_rate_multiplier else None,
+                  'b_learning_rate_multiplier': self.b_learning_rate_multiplier if self.b_learning_rate_multiplier else None
+        }
         base_config = super(MaxoutDense, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
@@ -871,7 +1005,7 @@ class Highway(Layer):
         - [Highway Networks](http://arxiv.org/pdf/1505.00387v2.pdf)
     '''
     def __init__(self, init='glorot_uniform', transform_bias=-2,
-                 activation='linear', weights=None,
+                 activation=None, weights=None,
                  W_regularizer=None, b_regularizer=None, activity_regularizer=None,
                  W_constraint=None, b_constraint=None,
                  bias=True, input_dim=None, **kwargs):
@@ -936,6 +1070,7 @@ class Highway(Layer):
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
             del self.initial_weights
+        self.built = True
 
     def call(self, x, mask=None):
         y = K.dot(x, self.W_carry)
@@ -1014,7 +1149,7 @@ class TimeDistributedDense(Layer):
     '''
 
     def __init__(self, output_dim,
-                 init='glorot_uniform', activation='linear', weights=None,
+                 init='glorot_uniform', activation=None, weights=None,
                  W_regularizer=None, b_regularizer=None, activity_regularizer=None,
                  W_constraint=None, b_constraint=None,
                  bias=True, input_dim=None, input_length=None, **kwargs):
@@ -1076,6 +1211,7 @@ class TimeDistributedDense(Layer):
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
             del self.initial_weights
+        self.built = True
 
     def get_output_shape_for(self, input_shape):
         return (input_shape[0], input_shape[1], self.output_dim)

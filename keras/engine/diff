@@ -1,0 +1,1004 @@
+12d11
+< import inspect
+27c26
+<     if isinstance(x, list):
+---
+>     if type(x) is list:
+32,36d30
+< def object_list_uid(object_list):
+<     object_list = to_list(object_list)
+<     return ', '.join([str(abs(id(x))) for x in object_list])
+< 
+< 
+46c40
+<         if isinstance(ndim, str):
+---
+>         if type(ndim) is str:
+79,80c73
+<         tensor_indices: a list of integers,
+<             the same length as `inbound_layers`.
+---
+>         tensor_indices: a list of integers, the same length as `inbound_layers`.
+82,83c75
+<             output of the inbound layer
+<             (necessary since each inbound layer might
+---
+>             output of the inbound layer (necessary since each inbound layer might
+110,111c102
+<         # the current node will be added to
+<         # the inbound_nodes of outbound_layer.
+---
+>         # the current node will be added to the inbound_nodes of outbound_layer.
+166,167c157
+<             # TODO: try to auto-infer shape
+<             # if exception is raised by get_output_shape_for.
+---
+>             # TODO: try to auto-infer shape if exception is raised by get_output_shape_for.
+175c165
+<             raise TypeError('The `call` method of layer "' +
+---
+>             raise Exception('The `call` method of layer "' +
+180,184c170,174
+<             raise ValueError('The `get_output_shape_for` method of layer "' +
+<                              outbound_layer.name +
+<                              '"" should return one shape tuple per '
+<                              'output tensor of the layer. Found: ' +
+<                              str(output_shapes))
+---
+>             raise Exception('The `get_output_shape_for` method of layer "' +
+>                             outbound_layer.name +
+>                             '"" should return one shape tuple per '
+>                             'output tensor of the layer. Found: ' +
+>                             str(output_shapes))
+186,190c176,180
+<             raise ValueError('The `compute_mask` method of layer "' +
+<                              outbound_layer.name +
+<                              '" should return one mask tensor per '
+<                              'output tensor of the layer. Found: ' +
+<                              str(output_masks))
+---
+>             raise Exception('The `compute_mask` method of layer "' +
+>                             outbound_layer.name +
+>                             '" should return one mask tensor per '
+>                             'output tensor of the layer. Found: ' +
+>                             str(output_masks))
+251a242
+>         regularizers: List of regularizers.
+252a244
+>         multipliers: dict mapping weights to learning rates multipliers.
+309a302,303
+>         if not hasattr(self,'multipliers'):
+>             self.multipliers={}
+322,323c316,317
+<             if kwarg not in allowed_kwargs:
+<                 raise TypeError('Keyword argument not understood:', kwarg)
+---
+>             assert kwarg in allowed_kwargs, 'Keyword argument not understood: ' + kwarg
+> 
+366,380d359
+<     @property
+<     def regularizers(self):
+<         warnings.warn('The `regularizers` property of '
+<                       'layers/models is deprecated. '
+<                       'Regularization losses are now managed via the `losses` '
+<                       'layer/model property.')
+<         return []
+< 
+<     @regularizers.setter
+<     def regularizers(self, _):
+<         warnings.warn('The `regularizers` property of layers/models '
+<                       'is deprecated. '
+<                       'Regularization losses are now managed via the `losses` '
+<                       'layer/model property.')
+< 
+433,436c412,414
+<         if not isinstance(self.input_spec, list):
+<             raise TypeError('input_spec must be a list of '
+<                             'InputSpec instances. Found: ' +
+<                             str(self.input_spec))
+---
+>         assert type(self.input_spec) is list, ('input_spec must be a list of ' +
+>                                                'InputSpec instances. Found: ' +
+>                                                str(self.input_spec))
+440,444c418,422
+<                 raise ValueError('Layer ' + self.name + ' expects ' +
+<                                  str(len(self.input_spec)) + ' inputs, '
+<                                  'but it received ' + str(len(inputs)) +
+<                                  ' input tensors. Input received: ' +
+<                                  str(input))
+---
+>                 raise Exception('Layer ' + self.name + ' expects ' +
+>                                 str(len(self.input_spec)) + ' inputs, '
+>                                 'but it received ' + str(len(inputs)) +
+>                                 ' input tensors. Input received: ' +
+>                                 str(input))
+451c429
+<                 if isinstance(spec.ndim, str):
+---
+>                 if type(spec.ndim) is str:
+455,459c433,437
+<                         raise ValueError('Input ' + str(input_index) +
+<                                          ' is incompatible with layer ' +
+<                                          self.name + ': expected ndim >= ' +
+<                                          str(ndim) + ', found ndim=' +
+<                                          str(K.ndim(x)))
+---
+>                         raise Exception('Input ' + str(input_index) +
+>                                         ' is incompatible with layer ' +
+>                                         self.name + ': expected ndim >= ' +
+>                                         str(ndim) + ', found ndim=' +
+>                                         str(K.ndim(x)))
+462,466c440,444
+<                         raise ValueError('Input ' + str(input_index) +
+<                                          ' is incompatible with layer ' +
+<                                          self.name + ': expected ndim=' +
+<                                          str(spec.ndim) + ', found ndim=' +
+<                                          str(K.ndim(x)))
+---
+>                         raise Exception('Input ' + str(input_index) +
+>                                         ' is incompatible with layer ' +
+>                                         self.name + ': expected ndim=' +
+>                                         str(spec.ndim) + ', found ndim=' +
+>                                         str(K.ndim(x)))
+469,473c447,451
+<                     raise ValueError('Input ' + str(input_index) +
+<                                      ' is incompatible with layer ' +
+<                                      self.name + ': expected dtype=' +
+<                                      str(spec.dtype) + ', found dtype=' +
+<                                      str(K.dtype(x)))
+---
+>                     raise Exception('Input ' + str(input_index) +
+>                                     ' is incompatible with layer ' +
+>                                     self.name + ': expected dtype=' +
+>                                     str(spec.dtype) + ', found dtype=' +
+>                                     str(K.dtype(x)))
+485,490c463,467
+<                             raise ValueError(
+<                                 'Input ' + str(input_index) +
+<                                 ' is incompatible with layer ' +
+<                                 self.name + ': expected shape=' +
+<                                 str(spec.shape) + ', found shape=' +
+<                                 str(x_shape))
+---
+>                             raise Exception('Input ' + str(input_index) +
+>                                             ' is incompatible with layer ' +
+>                                             self.name + ': expected shape=' +
+>                                             str(spec.shape) + ', found shape=' +
+>                                             str(x_shape))
+571a549,554
+>             # If single output tensor: return it,
+>             # else return a list (at least 2 elements).
+>             if len(outputs) == 1:
+>                 return outputs[0]
+>             else:
+>                 return outputs
+574,586c557
+<             outputs = to_list(self.call(x, mask))
+< 
+<         # Apply activity regularizer if any:
+<         if hasattr(self, 'activity_regularizer') and self.activity_regularizer is not None:
+<             regularization_losses = [self.activity_regularizer(x) for x in outputs]
+<             self.add_loss(regularization_losses, input_tensors)
+< 
+<         # If single output tensor: return it,
+<         # else return a list (at least 2 elements).
+<         if len(outputs) == 1:
+<             return outputs[0]
+<         else:
+<             return outputs
+---
+>             return self.call(x, mask)
+601,606c572,574
+<                 of tensor, and we might only be interested in
+<                 one specific entry.
+<                 This index allows you to specify the index of
+<                 the entry in the output list
+<                 (if applicable). "None" means that we take all outputs
+<                 (as a list).
+---
+>                 of tensor, and we might only be interested in one specific entry.
+>                 This index allows you to specify the index of the entry in the output list
+>                 (if applicable). "None" means that we take all outputs (as a list).
+661c629
+<                 if isinstance(input_mask, list):
+---
+>                 if type(input_mask) is list:
+663,666c631,632
+<                         raise ValueError('Layer ' + self.name +
+<                                          ' does not support masking, '
+<                                          'but was passed an input_mask: ' +
+<                                          str(input_mask))
+---
+>                         raise Exception('Layer ' + self.name + ' does not support masking, ' +
+>                                         'but was passed an input_mask: ' + str(input_mask))
+668,671c634,635
+<                     raise ValueError('Layer ' + self.name +
+<                                      ' does not support masking, '
+<                                      'but was passed an input_mask: ' +
+<                                      str(input_mask))
+---
+>                     raise Exception('Layer ' + self.name + ' does not support masking, ' +
+>                                     'but was passed an input_mask: ' + str(input_mask))
+699,700c663,664
+<             raise RuntimeError('The layer has never been called '
+<                                'and thus has no defined ' + attr_name + '.')
+---
+>             raise Exception('The layer has never been called ' +
+>                             'and thus has no defined ' + attr_name + '.')
+702,705c666,669
+<             raise ValueError('Asked to get ' + attr_name +
+<                              ' at node ' + str(node_index) +
+<                              ', but the layer has only ' +
+<                              str(len(self.inbound_nodes)) + ' inbound nodes.')
+---
+>             raise Exception('Asked to get ' + attr_name +
+>                             ' at node ' + str(node_index) +
+>                             ', but the layer has only ' +
+>                             str(len(self.inbound_nodes)) + ' inbound nodes.')
+761,765c725,729
+<             raise AttributeError('Layer ' + self.name +
+<                                  ' has multiple inbound nodes, '
+<                                  'hence the notion of "layer input" '
+<                                  'is ill-defined. '
+<                                  'Use `get_input_at(node_index)` instead.')
+---
+>             raise Exception('Layer ' + self.name +
+>                             ' has multiple inbound nodes, ' +
+>                             'hence the notion of "layer input" '
+>                             'is ill-defined. '
+>                             'Use `get_input_at(node_index)` instead.')
+767,768c731,732
+<             raise AttributeError('Layer ' + self.name +
+<                                  ' is not connected, no input to return.')
+---
+>             raise Exception('Layer ' + self.name +
+>                             ' is not connected, no input to return.')
+779,780c743,744
+<             raise AttributeError('Layer ' + self.name +
+<                                  ' has no inbound nodes.')
+---
+>             raise Exception('Layer ' + self.name +
+>                             ' has no inbound nodes.')
+782,786c746,750
+<             raise AttributeError('Layer ' + self.name +
+<                                  ' has multiple inbound nodes, '
+<                                  'hence the notion of "layer output" '
+<                                  'is ill-defined. '
+<                                  'Use `get_output_at(node_index)` instead.')
+---
+>             raise Exception('Layer ' + self.name +
+>                             ' has multiple inbound nodes, ' +
+>                             'hence the notion of "layer output" '
+>                             'is ill-defined. '
+>                             'Use `get_output_at(node_index)` instead.')
+797,801c761,765
+<             raise AttributeError('Layer ' + self.name +
+<                                  ' has multiple inbound nodes, ' +
+<                                  'hence the notion of "layer input mask" '
+<                                  'is ill-defined. '
+<                                  'Use `get_input_mask_at(node_index)` instead.')
+---
+>             raise Exception('Layer ' + self.name +
+>                             ' has multiple inbound nodes, ' +
+>                             'hence the notion of "layer input mask" '
+>                             'is ill-defined. '
+>                             'Use `get_input_mask_at(node_index)` instead.')
+812,817c776,780
+<             raise AttributeError('Layer ' + self.name +
+<                                  ' has multiple inbound nodes, '
+<                                  'hence the notion of "layer output mask" '
+<                                  'is ill-defined. '
+<                                  'Use `get_output_mask_at(node_index)` '
+<                                  'instead.')
+---
+>             raise Exception('Layer ' + self.name +
+>                             ' has multiple inbound nodes, ' +
+>                             'hence the notion of "layer output mask" '
+>                             'is ill-defined. '
+>                             'Use `get_output_mask_at(node_index)` instead.')
+828,829c791,792
+<             raise AttributeError('The layer has never been called '
+<                                  'and thus has no defined input shape.')
+---
+>             raise Exception('The layer has never been called ' +
+>                             'and thus has no defined input shape.')
+838,844c801,806
+<             raise AttributeError('The layer "' + str(self.name) +
+<                                  ' has multiple inbound nodes, '
+<                                  'with different input shapes. Hence '
+<                                  'the notion of "input shape" is '
+<                                  'ill-defined for the layer. '
+<                                  'Use `get_input_shape_at(node_index)` '
+<                                  'instead.')
+---
+>             raise Exception('The layer "' + str(self.name) +
+>                             ' has multiple inbound nodes, ' +
+>                             'with different input shapes. Hence ' +
+>                             'the notion of "input shape" is ' +
+>                             'ill-defined for the layer. ' +
+>                             'Use `get_input_shape_at(node_index)` instead.')
+853,854c815,816
+<             raise AttributeError('The layer has never been called '
+<                                  'and thus has no defined output shape.')
+---
+>             raise Exception('The layer has never been called ' +
+>                             'and thus has no defined output shape.')
+863,897c825,830
+<             raise AttributeError('The layer "' + str(self.name) +
+<                                  ' has multiple inbound nodes, '
+<                                  'with different output shapes. Hence '
+<                                  'the notion of "output shape" is '
+<                                  'ill-defined for the layer. '
+<                                  'Use `get_output_shape_at(node_index)` '
+<                                  'instead.')
+< 
+<     def add_loss(self, losses, inputs=None):
+<         if losses is None:
+<             return
+<         # Update self.losses
+<         losses = to_list(losses)
+<         if not hasattr(self, 'losses'):
+<             self.losses = []
+<         try:
+<             self.losses += losses
+<         except AttributeError:
+<             # In case self.losses isn't settable
+<             # (i.e. it's a getter method).
+<             # In that case the `losses` property is
+<             # auto-computed and shouldn't be set.
+<             pass
+<         # Update self._per_input_updates
+<         if not hasattr(self, '_per_input_losses'):
+<             self._per_input_losses = {}
+<         if inputs is not None:
+<             inputs_hash = object_list_uid(inputs)
+<         else:
+<             # Updates indexed by None are unconditional
+<             # rather than input-dependent
+<             inputs_hash = None
+<         if inputs_hash not in self._per_input_losses:
+<             self._per_input_losses[inputs_hash] = []
+<         self._per_input_losses[inputs_hash] += losses
+---
+>             raise Exception('The layer "' + str(self.name) +
+>                             ' has multiple inbound nodes, ' +
+>                             'with different output shapes. Hence ' +
+>                             'the notion of "output shape" is ' +
+>                             'ill-defined for the layer. ' +
+>                             'Use `get_output_shape_at(node_index)` instead.')
+899,901c832
+<     def add_update(self, updates, inputs=None):
+<         if updates is None:
+<             return
+---
+>     def add_updates(self, updates, inputs):
+903d833
+<         updates = to_list(updates)
+909,912d838
+<             # In case self.updates isn't settable
+<             # (i.e. it's a getter method).
+<             # In that case the `updates` property is
+<             # auto-computed and shouldn't be set.
+917,922c843,845
+<         if inputs is not None:
+<             inputs_hash = object_list_uid(inputs)
+<         else:
+<             # Updates indexed by None are unconditional
+<             # rather than input-dependent
+<             inputs_hash = None
+---
+>         inputs = to_list(inputs)
+>         updates = to_list(updates)
+>         inputs_hash = ', '.join([str(abs(id(x))) for x in inputs])
+965,972c888,891
+<             raise ValueError('You called `set_weights(weights)` on layer "' +
+<                              self.name +
+<                              '" with a  weight list of length ' +
+<                              str(len(weights)) +
+<                              ', but the layer was expecting ' +
+<                              str(len(params)) +
+<                              ' weights. Provided weights: ' +
+<                              str(weights)[:50] + '...')
+---
+>             raise ValueError('You called `set_weights(weights)` on layer "' + self.name +
+>                              '" with a  weight list of length ' + str(len(weights)) +
+>                              ', but the layer was expecting ' + str(len(params)) +
+>                              ' weights. Provided weights: ' + str(weights)[:50] + '...')
+1029c948
+<             if self.__class__.__name__ == 'Sequential':
+---
+>             if self.__class__.__name__ in {'Sequential', 'Graph'}:
+1032,1036c951,955
+<                 raise RuntimeError('You tried to call `count_params` on ' +
+<                                    self.name + ', but the layer isn\'t built. '
+<                                    'You can build it manually via: `' +
+<                                    self.name + '.build(batch_input_shape)`.')
+<         return sum([K.count_params(p) for p in self.weights])
+---
+>                 raise Exception('You tried to call `count_params` on ' +
+>                                 self.name + ', but the layer isn\'t built. '
+>                                 'You can build it manually via: `' +
+>                                 self.name + '.build(batch_input_shape)`.')
+>         return sum([K.count_params(p) for p in self.trainable_weights])
+1065a985,987
+>         self.trainable_weights = []
+>         self.non_trainable_weights = []
+>         self.regularizers = []
+1066a989
+>         self.multipliers={}
+1084,1089c1007,1010
+<                     raise ValueError('InputLayer was provided '
+<                                      'an input_tensor argument, '
+<                                      'but its input shape cannot be '
+<                                      'automatically inferred. '
+<                                      'You should pass an input_shape or '
+<                                      'batch_input_shape argument.')
+---
+>                     raise ValueError('InputLayer was provided an input_tensor argument, '
+>                                      'but its input shape cannot be automatically inferred. '
+>                                      'You should pass an input_shape or batch_input_shape '
+>                                      'argument.')
+1175c1096
+<     # Example
+---
+>     # Example usage
+1185,1186c1106,1107
+<         assert shape, ('Please provide to Input either a `shape`'
+<                        ' or a `batch_shape` argument. Note that '
+---
+>         assert shape, ('Please provide to Input either a `shape`' +
+>                        ' or a `batch_shape` argument. Note that ' +
+1208c1129
+<     # Example
+---
+>     # Example usage
+1218c1139
+<     merged_model.add(Merge([model1, model2], mode='concat', concat_axis=1))
+---
+>     merged_model.add(Merge([model1, model2], mode='concat', concat_axis=1)
+1230,1235c1151,1153
+<         dot_axes: Integer or tuple of integers,
+<             axes to use in mode `dot` or `cos`.
+<         output_shape: Either a shape tuple (tuple of integers),
+<             or a lambda/function
+<             to compute `output_shape`
+<             (only if merge mode is a lambda/function).
+---
+>         dot_axes: Integer or tuple of integers, axes to use in mode `dot` or `cos`.
+>         output_shape: Either a shape tuple (tuple of integers), or a lambda/function
+>             to compute `output_shape` (only if merge mode is a lambda/function).
+1239,1244c1157,1159
+<             If the argument is callable,
+<             it should take as input a list of shape tuples
+<             (1:1 mapping to input tensors)
+<             and return a single shape tuple, including the
+<             batch size (same convention as the
+<             `get_output_shape_for` method of layers).
+---
+>             If the argument is callable, it should take as input a list of shape tuples
+>             (1:1 mapping to input tensors) and return a single shape tuple, including the
+>             batch size (same convention as the `get_output_shape_for` method of layers).
+1272a1188
+>         self.multipliers = {} 
+1305c1221
+<         if not callable(mode):
+---
+>         if not hasattr(mode, '__call__'):
+1307,1311c1223,1226
+<                 raise ValueError('Invalid merge mode: ' + str(mode))
+<         if not isinstance(layers, (list, tuple)) or len(layers) < 2:
+<             raise TypeError('A Merge should only be applied to a list of '
+<                             'layers with at least 2 elements. Found: ' +
+<                             str(layers))
+---
+>                 raise Exception('Invalid merge mode: ' + str(mode))
+>         if type(layers) not in {list, tuple} or len(layers) < 2:
+>             raise Exception('A Merge should only be applied to a list of '
+>                             'layers with at least 2 elements. Found: ' + str(layers))
+1319c1234
+<             if isinstance(layer_output_shape, list):
+---
+>             if type(layer_output_shape) is list:
+1328,1330c1243,1245
+<                 raise ValueError('Only layers of same output shape can '
+<                                  'be merged using ' + mode + ' mode. ' +
+<                                  'Layer shapes: %s' % input_shapes)
+---
+>                 raise Exception('Only layers of same output shape can '
+>                                 'be merged using ' + mode + ' mode. ' +
+>                                 'Layer shapes: %s' % input_shapes)
+1333c1248
+<                 raise ValueError(mode + ' merge takes exactly 2 layers')
+---
+>                 raise Exception(mode + ' merge takes exactly 2 layers')
+1338c1253
+<             if isinstance(dot_axes, int):
+---
+>             if type(dot_axes) == int:
+1343,1345c1258,1259
+<             if not isinstance(self.dot_axes, (list, tuple)):
+<                 raise TypeError('Invalid type for dot_axes - '
+<                                 'should be a list.')
+---
+>             if type(self.dot_axes) not in [list, tuple]:
+>                 raise Exception('Invalid type for dot_axes - should be a list.')
+1347,1351c1261,1263
+<                 raise ValueError('Invalid format for dot_axes - '
+<                                  'should contain two elements.')
+<             if not isinstance(self.dot_axes[0], int) or not isinstance(self.dot_axes[1], int):
+<                 raise ValueError('Invalid format for dot_axes - '
+<                                  'list elements should be "int".')
+---
+>                 raise Exception('Invalid format for dot_axes - should contain two elements.')
+>             if type(self.dot_axes[0]) is not int or type(self.dot_axes[1]) is not int:
+>                 raise Exception('Invalid format for dot_axes - list elements should be "int".')
+1353,1355c1265,1267
+<                 raise ValueError('Dimension incompatibility using dot mode: '
+<                                  '%s != %s. ' % (shape1[self.dot_axes[0]], shape2[self.dot_axes[1]]) +
+<                                  'Layer shapes: %s, %s' % (shape1, shape2))
+---
+>                 raise Exception('Dimension incompatibility using dot mode: ' +
+>                                 '%s != %s. ' % (shape1[self.dot_axes[0]], shape2[self.dot_axes[1]]) +
+>                                 'Layer shapes: %s, %s' % (shape1, shape2))
+1363,1366c1275,1277
+<                 raise ValueError('"concat" mode can only merge '
+<                                  'layers with matching '
+<                                  'output shapes except for the concat axis. '
+<                                  'Layer shapes: %s' % (input_shapes))
+---
+>                 raise Exception('"concat" mode can only merge layers with matching ' +
+>                                 'output shapes except for the concat axis. ' +
+>                                 'Layer shapes: %s' % (input_shapes))
+1369,1370c1280,1281
+<         if not isinstance(inputs, list) or len(inputs) <= 1:
+<             raise TypeError('Merge must be called on a list of tensors '
+---
+>         if type(inputs) is not list or len(inputs) <= 1:
+>             raise Exception('Merge must be called on a list of tensors '
+1373,1377c1284,1287
+<         if callable(self.mode):
+<             arguments = self.arguments
+<             arg_spec = inspect.getargspec(self.mode)
+<             if 'mask' in arg_spec.args:
+<                 arguments['mask'] = mask
+---
+>         if hasattr(self.mode, '__call__'):
+>             # TODO: consider making it possible to
+>             # pass custom arguments to lambda.
+>             arguments = {}
+1417c1327
+<             raise ValueError('Unknown merge mode.')
+---
+>             raise Exception('Unknown merge mode.')
+1425,1426c1335,1336
+<         if not isinstance(inputs, list):
+<             raise TypeError('Merge can only be called on a list of tensors, '
+---
+>         if type(inputs) is not list:
+>             raise Exception('Merge can only be called on a list of tensors, '
+1429,1432c1339,1342
+<             raise RuntimeError('A Merge layer cannot be used more than once, '
+<                                'please use '
+<                                'the "merge" function instead: '
+<                                '`merged_tensor = merge([tensor_1, tensor2])`.')
+---
+>             raise Exception('A Merge layer cannot be used more than once, '
+>                             'please use ' +
+>                             'the "merge" function instead: ' +
+>                             '`merged_tensor = merge([tensor_1, tensor2])`.')
+1461,1462c1371
+<         # Must have multiple input shape tuples.
+<         assert isinstance(input_shape, list)
+---
+>         assert type(input_shape) is list  # Must have multiple input shape tuples.
+1464,1465c1373,1374
+<         if callable(self.mode):
+<             if callable(self._output_shape):
+---
+>         if hasattr(self.mode, '__call__'):
+>             if hasattr(self._output_shape, '__call__'):
+1472,1479c1381,1386
+<                 raise ValueError('The Merge layer ' + self.name +
+<                                  ' has a callable `mode` argument, '
+<                                  'and we cannot infer its output shape '
+<                                  'because no `output_shape` '
+<                                  'argument was provided. '
+<                                  'Make sure to pass a shape tuple '
+<                                  '(or callable) '
+<                                  '`output_shape` to Merge.')
+---
+>                 raise Exception('The Merge layer ' + self.name +
+>                                 ' has a callable `mode` argument, ' +
+>                                 'and we cannot infer its output shape because ' +
+>                                 'no `output_shape` argument was provided.' +
+>                                 'Make sure to pass a shape tuple (or a callable) ' +
+>                                 '`output_shape` to Merge.')
+1514,1515c1421
+<             # Make a list of masks while making sure
+<             # the dimensionality of each mask
+---
+>             # Make a list of masks while making sure the dimensionality of each mask
+1520,1521c1426
+<                     # Input is unmasked. Append all 1s to masks,
+<                     # but cast it to uint8 first
+---
+>                     # Input is unmasked. Append all 1s to masks, but cast it to uint8 first
+1532,1533c1437,1438
+<         elif callable(self.mode):
+<             if callable(self._output_mask):
+---
+>         elif hasattr(self.mode, '__call__'):
+>             if hasattr(self._output_mask, '__call__'):
+1539c1444
+<             raise ValueError('Invalid merge mode: {}'.format(self.mode))
+---
+>             raise Exception('Invalid merge mode: {}'.format(self.mode))
+1562,1571d1466
+<         if isinstance(self._output_mask, python_types.LambdaType):
+<             output_mask = func_dump(self._output_mask)
+<             output_mask_type = 'lambda'
+<         elif callable(self._output_mask):
+<             output_mask = self._output_mask.__name__
+<             output_mask_type = 'function'
+<         else:
+<             output_mask = self._output_mask
+<             output_mask_type = 'raw'
+< 
+1578,1581c1473
+<                 'output_shape_type': output_shape_type,
+<                 'output_mask': output_mask,
+<                 'output_mask_type': output_mask_type,
+<                 'arguments': self.arguments}
+---
+>                 'output_shape_type': output_shape_type}
+1593c1485
+<         output_shape_type = config.pop('output_shape_type', None)
+---
+>         output_shape_type = config.pop('output_shape_type')
+1597,1607c1489
+<             output_shape = func_load(config['output_shape'],
+<                                      globs=globals())
+<         else:
+<             output_shape = config.get('output_shape')
+< 
+<         output_mask_type = config.pop('output_mask_type', None)
+<         if output_mask_type == 'function':
+<             output_mask = globals()[config['output_mask']]
+<         elif output_mask_type == 'lambda':
+<             output_mask = func_load(config['output_mask'],
+<                                     globs=globals())
+---
+>             output_shape = func_load(config['output_shape'], globs=globals())
+1609c1491
+<             output_mask = config.get('output_mask')
+---
+>             output_shape = config['output_shape']
+1613d1494
+<         config['output_mask'] = output_mask
+1623c1504
+<     # Example
+---
+>     # Example usage:
+1637,1638c1518
+<         dot_axes: Integer or tuple of integers,
+<             axes to use in mode `dot` or `cos`.
+---
+>         dot_axes: Integer or tuple of integers, axes to use in mode `dot` or `cos`.
+1642,1644c1522,1523
+<             (1:1 mapping to input tensors) and return a single shape tuple,
+<             including the batch size
+<             (same convention as the `get_output_shape_for` method of layers).
+---
+>             (1:1 mapping to input tensors) and return a single shape tuple, including the
+>             batch size (same convention as the `get_output_shape_for` method of layers).
+1672d1550
+<                             arguments=arguments,
+1683d1560
+<                             arguments=arguments,
+1711a1589
+>         regularizers (list of regularizers)
+1712a1591
+>         multipliers (list of tuples (weight, learning_rate_multiplier)
+1736c1615
+<         if isinstance(input, (list, tuple)):
+---
+>         if type(input) in {list, tuple}:
+1740c1619
+<         if isinstance(output, (list, tuple)):
+---
+>         if type(output) in {list, tuple}:
+1748,1751c1627,1629
+<             raise ValueError('The list of inputs passed to the model '
+<                              'is redundant. '
+<                              'All inputs should only appear once.'
+<                              ' Found: ' + str(self.inputs))
+---
+>             raise Exception('The list of inputs passed to the model '
+>                             'is redundant. All inputs should only appear once.'
+>                             ' Found: ' + str(self.inputs))
+1756,1757c1634
+<         # TODO: probably useless because input layers must be Input layers
+<         # (node_indices = [0], tensor_indices = [0])
+---
+>         # TODO: probably useless because input layers must be Input layers (node_indices = [0], tensor_indices = [0])
+1786c1663
+<                 raise TypeError('Input tensors to a ' + cls_name + ' ' +
+---
+>                 raise Exception('Input tensors to a ' + cls_name + ' ' +
+1809c1686
+<                 raise TypeError('Output tensors to a ' + cls_name + ' must be '
+---
+>                 raise Exception('Output tensors to a ' + cls_name + ' must be '
+1862,1863c1739
+<         # (not all nodes included in the layers
+<         # are relevant to the current graph).
+---
+>         # (not all nodes included in the layers are relevant to the current graph).
+1982c1858
+<                             raise RuntimeError(
+---
+>                             raise Exception(
+2002,2005c1878,1881
+<                 raise RuntimeError('The name "' + name + '" is used ' +
+<                                    str(all_names.count(name)) +
+<                                    ' times in the model. '
+<                                    'All layer names should be unique.')
+---
+>                 raise Exception('The name "' + name + '" is used ' +
+>                                 str(all_names.count(name)) +
+>                                 ' times in the model. ' +
+>                                 'All layer names should be unique.')
+2027a1904,1905
+>         # self.multipliers
+>         # self.regularizers
+2050,2052c1928,1930
+<                 raise ValueError('Was asked to retrieve layer at index ' +
+<                                  str(index) + ' but model only has ' +
+<                                  str(len(self.layers)) + ' layers.')
+---
+>                 raise Exception('Was asked to retrieve layer at index ' +
+>                                 str(index) + ' but model only has ' +
+>                                 str(len(self.layers)) + ' layers.')
+2062c1940
+<             raise ValueError('No such layer: ' + name)
+---
+>             raise Exception('No such layer: ' + name)
+2072,2073d1949
+<                     # Collect updates that are dependent on inputs
+<                     # that are part of the model.
+2080,2081d1955
+<                     # Collect unconditional updates.
+<                     updates += layer.get_updates_for(None)
+2086,2090c1960,1964
+<         losses = []
+<         for layer in self.layers:
+<             if hasattr(layer, 'losses'):
+<                 if len(layer.inbound_nodes) == 1:
+<                     losses += layer.losses
+---
+>         losses=[]
+>         for layer in self.layers: 
+>             if hasattr(layer,'losses'):
+>                 if len(layer.inbound_nodes)==1:
+>                     losses+=layer.losses
+2092,2093c1966,1967
+<                     # Collect losses that are dependent on inputs
+<                     # that are part of the model.
+---
+>                     #collect the losses that are dependent on inputs
+>                     #that are part of the model
+2095c1969
+<                         node_key = layer.name + '_ib-' + str(node_index)
+---
+>                         node_key=layer.name+'_ib-' + str(node_index)
+2097,2103c1971,1977
+<                             # The model owns this layer node.
+<                             inputs = node.input_tensors
+<                             losses += layer.get_losses_for(inputs)
+<                     # Collect unconditional losses.
+<                     losses += layer.get_losses_for(None)
+<         return losses
+< 
+---
+>                             #The model owns this layer node
+>                             inputs=node.input_tensors
+>                             losses+=layer.get_losses_for(inputs)
+>                     #Collect unconditional losses
+>                     losses+=layer.get_losses_for(None)
+>         return losses 
+>     
+2133,2134c2007,2008
+<                     raise ValueError('Received multiple constraints '
+<                                      'for one weight tensor: ' + str(key))
+---
+>                     raise Exception('Received multiple constraints '
+>                                     'for one weight tensor: ' + str(key))
+2138a2013,2023
+>     def multipliers(self):
+>         mults={}
+>         for layer in self.layers:
+>             for key, value in layer.multipliers.items():
+>                 if key in mults:
+>                     raise Exception('Received multiple learning rate multipliers '
+>                                     'for one weight tensor: ' +str(key))
+>                 mults[key]=value
+>         return mults
+>     
+>     @property
+2200,2201c2085,2086
+<                 if not isinstance(layer.input_spec, list):
+<                     raise TypeError('Layer ' + layer.name +
+---
+>                 if type(layer.input_spec) is not list:
+>                     raise Exception('Layer ' + layer.name +
+2214c2099,2100
+<         return layers_learning_phase
+---
+>         regs_learning_phase = any([reg.uses_learning_phase for reg in self.regularizers])
+>         return layers_learning_phase or regs_learning_phase
+2261,2263c2147,2149
+<             raise ValueError('Invalid input_shape argument ' +
+<                              str(input_shape) + ': model has ' +
+<                              str(len(self.input_layers)) + ' tensor inputs.')
+---
+>             raise Exception('Invalid input_shape argument ' +
+>                             str(input_shape) + ': model has ' +
+>                             str(len(self.input_layers)) + ' tensor inputs.')
+2268c2154
+<             if isinstance(output_shapes, list) and len(output_shapes) == 1:
+---
+>             if type(output_shapes) is list and len(output_shapes) == 1:
+2332c2218
+<             if isinstance(output_shapes, list) and len(output_shapes) == 1:
+---
+>             if type(output_shapes) is list and len(output_shapes) == 1:
+2349a2236
+>         assert type(inputs) is list
+2351a2239
+>         assert type(masks) is list
+2353,2354c2241
+<         # Dictionary mapping reference tensors to tuples
+<         # (computed tensor, compute mask)
+---
+>         # Dictionary mapping reference tensors to tuples (computed tensor, compute mask)
+2356,2357c2243
+<         # TODO: raise exception when a `.compute_mask()` call
+<         # does not return a list the same size as `call`
+---
+>         # TODO: raise exception when a .compute_mask does not return a list the same size as call
+2383,2386c2269,2270
+<                         output_tensors = to_list(layer.call(computed_tensor,
+<                                                             computed_mask))
+<                         output_masks = to_list(layer.compute_mask(computed_tensor,
+<                                                                   computed_mask))
+---
+>                         output_tensors = to_list(layer.call(computed_tensor, computed_mask))
+>                         output_masks = to_list(layer.compute_mask(computed_tensor, computed_mask))
+2392,2395c2276,2277
+<                         output_tensors = to_list(layer.call(computed_tensors,
+<                                                             computed_masks))
+<                         output_masks = to_list(layer.compute_mask(computed_tensors,
+<                                                                   computed_masks))
+---
+>                         output_tensors = to_list(layer.call(computed_tensors, computed_masks))
+>                         output_masks = to_list(layer.compute_mask(computed_tensors, computed_masks))
+2397c2279
+<                     # Update model updates and losses:
+---
+>                     # update model updates
+2399,2409c2281
+<                     # Keep track of updates that depend on the inputs
+<                     # (e.g. BN updates).
+<                     self.add_update(layer.get_updates_for(layer_inputs), inputs)
+<                     # Keep track of unconditional updates (e.g. a counter).
+<                     self.add_update(layer.get_updates_for(None), None)
+<                     # Keep track of losses that depend on the inputs
+<                     # (e.g. activity regularizers).
+<                     self.add_loss(layer.get_losses_for(layer_inputs), inputs)
+<                     # Keep track of unconditional losses
+<                     # (e.g. weight regularizers).
+<                     self.add_loss(layer.get_losses_for(None), None)
+---
+>                     self.add_updates(layer.get_updates_for(layer_inputs), inputs)
+2442,2443c2314
+<         # Update cache;
+<         # keys are based on ids on input tensors and inputs masks.
+---
+>         # Update cache; keys are based on ids on input tensors and inputs masks.
+2610c2481
+<         # Example
+---
+>         # Example usage
+2634,2635c2505
+<                     a list of strings
+<                     (ordered names of weights tensor of the layer).
+---
+>                     a list of strings (ordered names of weights tensor of the layer).
+2724,2727c2594,2597
+<                 raise ValueError('You are trying to load a weight file '
+<                                  'containing ' + str(nb_layers) +
+<                                  ' layers into a model with ' +
+<                                  str(len(flattened_layers)) + ' layers.')
+---
+>                 raise Exception('You are trying to load a weight file '
+>                                 'containing ' + str(nb_layers) +
+>                                 ' layers into a model with ' +
+>                                 str(len(flattened_layers)) + ' layers.')
+2751,2754c2621,2624
+<                 raise ValueError('You are trying to load a weight file '
+<                                  'containing ' + str(len(layer_names)) +
+<                                  ' layers into a model with ' +
+<                                  str(len(flattened_layers)) + ' layers.')
+---
+>                 raise Exception('You are trying to load a weight file '
+>                                 'containing ' + str(len(layer_names)) +
+>                                 ' layers into a model with ' +
+>                                 str(len(flattened_layers)) + ' layers.')
+2766,2775c2636,2645
+<                     raise ValueError('Layer #' + str(k) +
+<                                      ' (named "' + layer.name +
+<                                      '" in the current model) was found to '
+<                                      'correspond to layer ' + name +
+<                                      ' in the save file. '
+<                                      'However the new layer ' + layer.name +
+<                                      ' expects ' + str(len(symbolic_weights)) +
+<                                      ' weights, but the saved weights have ' +
+<                                      str(len(weight_values)) +
+<                                      ' elements.')
+---
+>                     raise Exception('Layer #' + str(k) +
+>                                     ' (named "' + layer.name +
+>                                     '" in the current model) was found to '
+>                                     'correspond to layer ' + name +
+>                                     ' in the save file. '
+>                                     'However the new layer ' + layer.name +
+>                                     ' expects ' + str(len(symbolic_weights)) +
+>                                     ' weights, but the saved weights have ' +
+>                                     str(len(weight_values)) +
+>                                     ' elements.')
+2782,2783c2652
+<                         # Legacy shape:
+<                         # (self.nb_filter, input_dim, self.filter_length, 1)
+---
+>                         # Legacy shape: (self.nb_filter, input_dim, self.filter_length, 1)
+2802,2804c2671,2673
+<                 raise ValueError('The weight file you are trying to load is'
+<                                  ' in a legacy format that does not support'
+<                                  ' name-based weight loading.')
+---
+>                 raise Exception('The weight file you are trying to load is' +
+>                                 ' in a legacy format that does not support' +
+>                                 ' name-based weight loading.')
+2826,2832c2695,2701
+<                         raise ValueError('Layer #' + str(k) +
+<                                          ' (named "' + layer.name +
+<                                          '") expects ' +
+<                                          str(len(symbolic_weights)) +
+<                                          ' weight(s), but the saved weights' +
+<                                          ' have ' + str(len(weight_values)) +
+<                                          ' element(s).')
+---
+>                         raise Exception('Layer #' + str(k) +
+>                                         ' (named "' + layer.name +
+>                                         '") expects ' +
+>                                         str(len(symbolic_weights)) +
+>                                         ' weight(s), but the saved weights' +
+>                                         ' have ' + str(len(weight_values)) +
+>                                         ' element(s).')
+2835,2836c2704
+<                         weight_value_tuples.append((symbolic_weights[i],
+<                                                     weight_values[i]))
+---
+>                         weight_value_tuples.append((symbolic_weights[i], weight_values[i]))
+2894,2897c2762,2763
+<         print_summary(flattened_layers,
+<                       getattr(self, 'container_nodes', None),
+<                       line_length=line_length,
+<                       positions=positions)
+---
+> 
+>         print_summary(flattened_layers, getattr(self, 'container_nodes', None), line_length=line_length, positions=positions)
+2914c2780
+<         return tensor
+---
+>         raise Exception('Tensor must be a Keras tensor. Found: ' + str(tensor))
