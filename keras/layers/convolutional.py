@@ -343,7 +343,7 @@ class WeightedSum1D(Layer):
         else:
             W = K.concatenate(
                  tensors=[self.W,
-                         self.W[(1 if self.odd_input_length else 0):,:][::-1]],
+                          self.W[::-1][(1 if self.odd_input_length else 0):]],
                  axis=0)
         if (self.input_is_revcomp_conv):
             W = K.concatenate(tensors=[W, W[::-1,::-1]], axis=1)
