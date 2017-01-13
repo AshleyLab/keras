@@ -177,12 +177,14 @@ class RevCompConv1DBatchNorm(Layer):
         self.initial_weights = weights
         if self.mode == 0:
             self.uses_learning_phase = True
-        super(BatchNormalization, self).__init__(**kwargs)
+        super(RevCompConv1DBatchNorm, self).__init__(**kwargs)
 
     def build(self, input_shape):
         self.input_spec = [InputSpec(shape=input_shape)]
         self.num_input_chan = input_shape[self.axis]
         self.input_len = input_shape[1]
+        assert len(input_shape)==3,\
+         "Implementation done with RevCompConv1D input in mind"
         assert self.input_len is not None,\
          "not implemented for undefined input len"
         assert self.num_input_chan%2 == 0, "should be even for revcomp input"
@@ -218,12 +220,11 @@ class RevCompConv1DBatchNorm(Layer):
             axis=1)
         if self.mode == 0 or self.mode == 2:
             assert self.built, 'Layer must be built before being called'
-            input_shape = K.int_shape(x)
 
-            reduction_axes = list(range(len(input_shape)))
+            reduction_axes = list(range(3))
             del reduction_axes[self.axis]
-            broadcast_shape = [1] * len(input_shape)
-            broadcast_shape[self.axis] = input_shape[self.axis]
+            broadcast_shape = [1] * 3
+            broadcast_shape[self.axis] = int(self.num_input_chan/2)
 
             x_normed, mean, std = K.normalize_batch_in_training(
                 x, self.gamma, self.beta, reduction_axes,
@@ -254,8 +255,8 @@ class RevCompConv1DBatchNorm(Layer):
             x_normed = self.gamma * x_normed + self.beta
         #recover the reverse-complemented channels
         true_x_normed = K.concatenate(
-            tensors=[x_normed[:self.input_len,:,:],
-                     x_normed[self.input_len:,:,:][:,:,::-1]],
+            tensors=[x_normed[:,:self.input_len,:],
+                     x_normed[:,self.input_len:,:][:,:,::-1]],
             axis=2)
         return true_x_normed
 
