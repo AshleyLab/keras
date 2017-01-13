@@ -107,66 +107,6 @@ class AveragePooling1D(_Pooling1D):
         return output
 
 
-class WeightedPooling1D(Layer):
-
-    def __init__(self, symmetric=False,
-                       smoothness_penalty=None, initial_weights=None,
-                       init='glorot_uniform', 
-                       **kwargs):
-        super(WeightedPooling1D, self).__init__(**kwargs)
-        from .. import initializations
-        self.symmetric = symmetric
-        self.smoothness_penalty = smoothness_penalty
-        self.initial_weights = initial_weights
-        self.input_spec = [InputSpec(ndim=3)]
-        self.init = initializations.get(init)
-
-    def build(self, input_shape): 
-        from .. import regularizers
-        import functools
-        #input_shape[0] is the batch index
-        #input_shape[1] is length of input
-        #input_shape[2] is number of filters
-        if (self.symmetric == False):
-            self.W_shape = (input_shape[1],  input_shape[2])
-        else:
-            self.W_shape = (int(input_shape[1]/2.0 + 0.5), #+0.5 is for "ceil"
-                            input_shape[2])
-        self.W = self.add_weight(self.W_shape,
-             initializer=functools.partial(
-              self.init, dim_ordering='th'),
-             name='{}_W'.format(self.name),
-             regularizer=(None if self.smoothness_penalty is None else
-                         regularizers.SmoothnessRegularizer(
-                          self.smoothness_penalty)))
-
-        if self.initial_weights is not None:
-            self.set_weights(self.initial_weights)
-            del self.initial_weights
-        self.built = True
-
-    #3D input -> 2D output (loses length dimension)
-    def get_output_shape_for(self, input_shape):
-        return (input_shape[0], input_shape[2])
-
-    def call(self, x, mask=None):
-        if (self.symmetric == False):
-            W = self.W
-        else:
-            odd_w = self.W_shape[0]%2 == 1 
-            W = K.concatenate(
-                 tensors=[self.W, self.W[(1 if odd_w else 0):,:][::-1]],
-                 axis=0)
-        output = K.sum(x*K.expand_dims(W,0), axis=1)
-        return output 
-
-    def get_config(self):
-        config = {'symmetric': self.symmetric,
-                  'smoothness_penalty': self.smoothness_penalty}
-        base_config = super(WeightedPooling1D, self).get_config()
-        return dict(list(base_config.items()) + list(config.items()))
-
-
 class _Pooling2D(Layer):
     '''Abstract class for different pooling 2D layers.
     '''

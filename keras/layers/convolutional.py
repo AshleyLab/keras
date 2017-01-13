@@ -266,6 +266,98 @@ class RevCompConv1D(Convolution1D):
         return output
 
 
+class WeightedSum1D(Layer):
+    '''Learns a weight for each position, for each channel, and sums
+    lengthwise.
+
+    # Arguments
+        symmetric: if want weights to be symmetric along length, set to True
+        input_is_revcomp_conv: if the input is [RevCompConv1D], set to True for
+            added weight sharing between reverse-complement pairs
+        smoothness_penalty: penalty to be applied to absolute difference
+            of adjacent weights in the length dimension
+        init: name of initialization function for the weights of the layer
+            (see [initializations](../initializations.md)),
+            or alternatively, Theano function to use for weights initialization.
+            This parameter is only relevant if you don't pass a `weights` argument.
+        weights: list of numpy arrays to set as initial weights.
+
+    # Input shape
+        3D tensor with shape: `(samples, steps, features)`.
+
+    # Output shape
+        2D tensor with shape: `(samples, features)`.
+    '''
+    def __init__(self, symmetric=False, input_is_revcomp_conv=False,
+                       smoothness_penalty=None,
+                       init='glorot_uniform', weights=None,
+                       **kwargs):
+        super(WeightedSum1D, self).__init__(**kwargs)
+        self.symmetric = symmetric
+        self.input_is_revcomp_conv = input_is_revcomp_conv
+        self.smoothness_penalty = smoothness_penalty
+        self.initial_weights = weights
+        self.input_spec = [InputSpec(ndim=3)]
+        self.init = initializations.get(init)
+
+    def build(self, input_shape): 
+        #input_shape[0] is the batch index
+        #input_shape[1] is length of input
+        #input_shape[2] is number of filters
+
+        if (self.symmetric == False):
+            W_length = input_shape[1]
+        else:
+            self.odd_input_length = input_shape[1]%2.0 == 1
+            #+0.5 below turns floor into ceil
+            W_length = int(input_shape[1]/2.0 + 0.5)
+
+        if (self.input_is_revcomp_conv == False):
+            W_chan = input_shape[2]
+        else:
+            assert (input_shape[2]%2==0,
+             "if input is revcomp conv, # incoming channels would be even")
+            W_chan = int(input_shape[2]/2)
+
+        self.W_shape = (W_length, W_chan)
+        self.W = self.add_weight(self.W_shape,
+             initializer=functools.partial(
+              self.init, dim_ordering='th'),
+             name='{}_W'.format(self.name),
+             regularizer=(None if self.smoothness_penalty is None else
+                         regularizers.SmoothnessRegularizer(
+                          self.smoothness_penalty)))
+
+        if self.initial_weights is not None:
+            self.set_weights(self.initial_weights)
+            del self.initial_weights
+        self.built = True
+
+    #3D input -> 2D output (loses length dimension)
+    def get_output_shape_for(self, input_shape):
+        return (input_shape[0], input_shape[2])
+
+    def call(self, x, mask=None):
+        if (self.symmetric == False):
+            W = self.W
+        else:
+            W = K.concatenate(
+                 tensors=[self.W,
+                         self.W[(1 if self.odd_input_length else 0):,:][::-1]],
+                 axis=0)
+        if (self.input_is_revcomp_conv):
+            W = K.concatenate(tensors=[W, W[::-1,::-1]], axis=1)
+        output = K.sum(x*K.expand_dims(W,0), axis=1)
+        return output 
+
+    def get_config(self):
+        config = {'symmetric': self.symmetric,
+                  'smoothness_penalty': self.smoothness_penalty,
+                  'init': self.init.__name__}
+        base_config = super(WeightedSum1D, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
 class AtrousConvolution1D(Convolution1D):
     '''Atrous Convolution operator for filtering neighborhoods of one-dimensional inputs.
     A.k.a dilated convolution or convolution with holes.
