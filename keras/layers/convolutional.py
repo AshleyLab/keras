@@ -276,6 +276,7 @@ class WeightedSum1D(Layer):
             added weight sharing between reverse-complement pairs
         smoothness_penalty: penalty to be applied to absolute difference
             of adjacent weights in the length dimension
+        bias: whether or not to have bias parameters
         init: name of initialization function for the weights of the layer
             (see [initializations](../initializations.md)),
             or alternatively, Theano function to use for weights initialization.
@@ -289,13 +290,14 @@ class WeightedSum1D(Layer):
         2D tensor with shape: `(samples, features)`.
     '''
     def __init__(self, symmetric=False, input_is_revcomp_conv=False,
-                       smoothness_penalty=None,
+                       smoothness_penalty=None, bias=True,
                        init='glorot_uniform', weights=None,
                        **kwargs):
         super(WeightedSum1D, self).__init__(**kwargs)
         self.symmetric = symmetric
         self.input_is_revcomp_conv = input_is_revcomp_conv
         self.smoothness_penalty = smoothness_penalty
+        self.bias = bias
         self.initial_weights = weights
         self.input_spec = [InputSpec(ndim=3)]
         self.init = initializations.get(init)
@@ -315,11 +317,12 @@ class WeightedSum1D(Layer):
         if (self.input_is_revcomp_conv == False):
             W_chan = input_shape[2]
         else:
-            assert (input_shape[2]%2==0,
-             "if input is revcomp conv, # incoming channels would be even")
+            assert input_shape[2]%2==0,\
+             "if input is revcomp conv, # incoming channels would be even"
             W_chan = int(input_shape[2]/2)
 
         self.W_shape = (W_length, W_chan)
+        self.b_shape = (W_chan,)
         self.W = self.add_weight(self.W_shape,
              initializer=functools.partial(
               self.init, dim_ordering='th'),
@@ -327,6 +330,11 @@ class WeightedSum1D(Layer):
              regularizer=(None if self.smoothness_penalty is None else
                          regularizers.SmoothnessRegularizer(
                           self.smoothness_penalty)))
+        if (self.bias):
+            self.b = self.add_weight(self.b_shape,
+                 initializer=functools.partial(
+                  self.init, dim_ordering='th'),
+                 name='{}_b'.format(self.name))
 
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
@@ -345,9 +353,15 @@ class WeightedSum1D(Layer):
                  tensors=[self.W,
                           self.W[::-1][(1 if self.odd_input_length else 0):]],
                  axis=0)
+        if (self.bias):
+            b = self.b
         if (self.input_is_revcomp_conv):
             W = K.concatenate(tensors=[W, W[::-1,::-1]], axis=1)
+            if (self.bias):
+                b = K.concatenate(tensors=[b, b[::-1]], axis=1)
         output = K.sum(x*K.expand_dims(W,0), axis=1)
+        if (self.bias):
+            output = output + K.expand_dims(b,0)
         return output 
 
     def get_config(self):

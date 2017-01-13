@@ -60,6 +60,12 @@ def glorot_uniform(shape, name=None, dim_ordering='th'):
     return uniform(shape, s, name=name)
 
 
+def fanintimesfanouttimesfanout(shape, name=None, dim_ordering='th'):
+    fan_in, fan_out = get_fans(shape, dim_ordering=dim_ordering)
+    s = np.sqrt(6. / (fan_in*fan_out*fan_out))
+    return uniform(shape, s, name=name)
+
+
 def he_normal(shape, name=None, dim_ordering='th'):
     ''' Reference:  He et al., http://arxiv.org/abs/1502.01852
     '''
