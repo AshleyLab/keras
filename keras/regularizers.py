@@ -23,6 +23,20 @@ class Regularizer(object):
                       'and it will be removed after 06/2017.')
 
 
+class SmoothnessRegularizer(Regularizer):
+
+    def __init__(self, smoothness):
+        self.smoothness = smoothness
+
+    def __call__(self, x):
+        return K.mean(K.abs(x[1:, :]-x[:-1,:]))*self.smoothness
+
+    def get_config(self):
+        return {'name': self.__class__.__name__,
+                'smoothness': float(self.smoothness)}
+
+
+
 class EigenvalueRegularizer(Regularizer):
     '''This takes a constant that controls
     the regularization by Eigenvalue Decay on the
