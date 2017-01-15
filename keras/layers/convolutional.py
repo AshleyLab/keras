@@ -351,14 +351,17 @@ class WeightedSum1D(Layer):
         else:
             W = K.concatenate(
                  tensors=[self.W,
+                          #reverse along length, concat along length
                           self.W[::-1][(1 if self.odd_input_length else 0):]],
                  axis=0)
         if (self.bias):
             b = self.b
         if (self.input_is_revcomp_conv):
+            #reverse along both length and channel dims, concat along chan
+            #if symmetric=True, reversal along length here makes no diff
             W = K.concatenate(tensors=[W, W[::-1,::-1]], axis=1)
             if (self.bias):
-                b = K.concatenate(tensors=[b, b[::-1]], axis=1)
+                b = K.concatenate(tensors=[b, b[::-1]], axis=0)
         output = K.sum(x*K.expand_dims(W,0), axis=1)
         if (self.bias):
             output = output + K.expand_dims(b,0)
