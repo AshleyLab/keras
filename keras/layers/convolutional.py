@@ -248,11 +248,12 @@ class RevCompConv1D(Convolution1D):
 
     def call(self, x, mask=None):
         #create a rev-comped W. The last axis is the output channel axis.
-        #Rev comp is along both the length (dim 0) and input channel (dim 1)
-        #axes; that is the reason for ::-1, ::-1 in the first two dims.
+        #dim 1 is dummy axis of size 1 (see 'build' method in Convolution1D)
+        #Rev comp is along both the length (dim 0) and input channel (dim 2)
+        #axes; that is the reason for ::-1, ::-1 in the first and third dims.
         #The rev-comp of channel at index i should be at index -i
         #This is the reason for the ::-1 in the last dim.
-        rev_comp_W = K.concatenate([self.W, self.W[::-1,::-1,::-1]],axis=-1)
+        rev_comp_W = K.concatenate([self.W, self.W[::-1,:,::-1,::-1]],axis=-1)
         if (self.bias):
             rev_comp_b = K.concatenate([self.b, self.b[::-1]], axis=-1)
         x = K.expand_dims(x, 2)  # add a dummy dimension
