@@ -290,7 +290,7 @@ class WeightedSum1D(Layer):
         2D tensor with shape: `(samples, features)`.
     '''
     def __init__(self, symmetric=False, input_is_revcomp_conv=False,
-                       smoothness_penalty=None, bias=True,
+                       smoothness_penalty=None, bias=False,
                        init='glorot_uniform', weights=None,
                        **kwargs):
         super(WeightedSum1D, self).__init__(**kwargs)
@@ -370,6 +370,7 @@ class WeightedSum1D(Layer):
     def get_config(self):
         config = {'symmetric': self.symmetric,
                   'smoothness_penalty': self.smoothness_penalty,
+                  'bias': self.bias,
                   'init': self.init.__name__}
         base_config = super(WeightedSum1D, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
