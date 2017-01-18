@@ -292,7 +292,7 @@ class WeightedSum1D(Layer):
     '''
     def __init__(self, symmetric, input_is_revcomp_conv,
                        smoothness_penalty=None, bias=False,
-                       init='glorot_uniform', weights=None,
+                       init='fanintimesfanouttimestwo', weights=None,
                        **kwargs):
         super(WeightedSum1D, self).__init__(**kwargs)
         self.symmetric = symmetric

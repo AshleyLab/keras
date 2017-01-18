@@ -796,6 +796,48 @@ class Dense(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
+class DenseAfterRevcompWeightedSum(Dense):
+    '''For dense layers that follow WeightedSum layers
+    that have input_is_revcomp_conv=True
+    '''
+
+    def build(self, input_shape):
+        assert len(input_shape) >= 2
+        input_dim = input_shape[-1]
+        assert input_dim%2 == 0,\
+         ("input_dim should be even if input is WeightedSum layer with"+
+          " input_is_revcomp_conv=True")
+        self.input_dim = input_dim
+        self.input_spec = [InputSpec(dtype=K.floatx(),
+                                     ndim='2+')]
+
+        self.W = self.add_weight((input_dim/2, self.output_dim),
+                                 initializer=self.init,
+                                 name='{}_W'.format(self.name),
+                                 regularizer=self.W_regularizer,
+                                 constraint=self.W_constraint)
+        if self.bias:
+            self.b = self.add_weight((self.output_dim,),
+                                     initializer='zero',
+                                     name='{}_b'.format(self.name),
+                                     regularizer=self.b_regularizer,
+                                     constraint=self.b_constraint)
+        else:
+            self.b = None
+
+        if self.initial_weights is not None:
+            self.set_weights(self.initial_weights)
+            del self.initial_weights
+        self.built = True
+
+    def call(self, x, mask=None):
+        output = K.dot(x, K.concatenate(
+                             tensors=[self.W, self.W[::-1,:]], axis=0))
+        if self.bias:
+            output += self.b
+        return self.activation(output)
+
+
 class ActivityRegularization(Layer):
     '''Layer that returns its input unchanged, but applies an update
     to the cost function based on the activity of the input.
