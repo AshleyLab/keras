@@ -796,13 +796,58 @@ class Dense(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
+class DenseAfterRevcompConv1DLayer(Dense):
+    '''For dense layers that follow 1D Convolutional or Pooling layers that
+    have reverse-complement weight sharing
+    '''
+
+    def build(self, input_shape):
+        assert len(input_shape) == 3, "layer designed to follow 1D conv/pool"
+        num_chan = input_shape[-1]
+        input_length = input_shape[-2]
+        assert num_chan%2 == 0,\
+         ("num_chan should be even if input is WeightedSum layer with"+
+          " input_is_revcomp_conv=True")
+        self.num_chan = num_chan
+        self.input_length = input_length
+        self.input_spec = [InputSpec(dtype=K.floatx(),
+                                     ndim='2+')]
+
+        self.W = self.add_weight((input_length, num_chan/2, self.output_dim),
+                                 initializer=self.init,
+                                 name='{}_W'.format(self.name),
+                                 regularizer=self.W_regularizer,
+                                 constraint=self.W_constraint)
+        if self.bias:
+            self.b = self.add_weight((self.output_dim,),
+                                     initializer='zero',
+                                     name='{}_b'.format(self.name),
+                                     regularizer=self.b_regularizer,
+                                     constraint=self.b_constraint)
+        else:
+            self.b = None
+
+        if self.initial_weights is not None:
+            self.set_weights(self.initial_weights)
+            del self.initial_weights
+        self.built = True
+
+    def call(self, x, mask=None):
+        output = K.sum(K.sum(x*K.concatenate(
+                    tensors=[self.W, self.W[::-1,::-1,:]], axis=1),
+                    axis=0),axis=1)
+        if self.bias:
+            output += self.b
+        return self.activation(output)
+
+
 class DenseAfterRevcompWeightedSum(Dense):
     '''For dense layers that follow WeightedSum layers
     that have input_is_revcomp_conv=True
     '''
 
     def build(self, input_shape):
-        assert len(input_shape) >= 2
+        assert len(input_shape) == 2
         input_dim = input_shape[-1]
         assert input_dim%2 == 0,\
          ("input_dim should be even if input is WeightedSum layer with"+
