@@ -813,7 +813,7 @@ class DenseAfterRevcompConv1D(Dense):
         self.input_spec = [InputSpec(dtype=K.floatx(),
                                      ndim='2+')]
 
-        self.W = self.add_weight((input_length, num_chan/2, self.output_dim),
+        self.W = self.add_weight((input_length*num_chan/2, self.output_dim),
                                  initializer=self.init,
                                  name='{}_W'.format(self.name),
                                  regularizer=self.W_regularizer,
@@ -836,8 +836,11 @@ class DenseAfterRevcompConv1D(Dense):
         return (None, self.output_dim)
 
     def call(self, x, mask=None):
+        W_reshaped = K.reshape(self.W, (self.input_length,
+                                        int(self.num_chan/2), self.output_dim)) 
         output = K.sum(K.sum(x[:,:,:,None]*K.concatenate(
-                    tensors=[self.W, self.W[::-1,::-1,:]], axis=1)[None,:,:,:],
+                    tensors=[W_reshaped,
+                             W_reshaped[::-1,::-1,:]], axis=1)[None,:,:,:],
                     axis=1),axis=1)
         if self.bias:
             output += self.b
