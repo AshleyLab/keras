@@ -796,7 +796,7 @@ class Dense(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class DenseAfterRevcompConv1DLayer(Dense):
+class DenseAfterRevcompConv1D(Dense):
     '''For dense layers that follow 1D Convolutional or Pooling layers that
     have reverse-complement weight sharing
     '''
@@ -832,10 +832,13 @@ class DenseAfterRevcompConv1DLayer(Dense):
             del self.initial_weights
         self.built = True
 
+    def get_output_shape_for(self, input_shape):
+        return (None, self.output_dim)
+
     def call(self, x, mask=None):
-        output = K.sum(K.sum(x*K.concatenate(
-                    tensors=[self.W, self.W[::-1,::-1,:]], axis=1),
-                    axis=0),axis=1)
+        output = K.sum(K.sum(x[:,:,:,None]*K.concatenate(
+                    tensors=[self.W, self.W[::-1,::-1,:]], axis=1)[None,:,:,:],
+                    axis=1),axis=1)
         if self.bias:
             output += self.b
         return self.activation(output)
