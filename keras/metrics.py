@@ -1,7 +1,7 @@
 import numpy as np
 from . import backend as K
 from .utils.generic_utils import get_from_module
-
+import tensorflow as tf 
 
 def binary_accuracy(y_true, y_pred):
     '''Calculates the mean accuracy rate across all predictions for binary
@@ -9,6 +9,53 @@ def binary_accuracy(y_true, y_pred):
     '''
     return K.mean(K.equal(y_true, K.round(y_pred)))
 
+def positive_accuracy(y_true,y_pred):
+    one_indices=K.cast(tf.where(K.equal(y_true,1.0)),'int32')
+    y_true_subset=tf.gather_nd(y_true,one_indices)
+    y_pred_subset=tf.gather_nd(y_pred,one_indices)
+    positive_accuracy=K.mean(K.equal(y_true_subset,K.round(y_pred_subset)))
+    return positive_accuracy 
+
+
+def negative_accuracy(y_true,y_pred):
+    one_indices=K.cast(tf.where(K.equal(y_true,0.0)),'int32')
+    y_true_subset=tf.gather_nd(y_true,one_indices)
+    y_pred_subset=tf.gather_nd(y_pred,one_indices)
+    negative_accuracy=K.mean(K.equal(y_true_subset,K.round(y_pred_subset)))
+    return negative_accuracy 
+
+
+
+def true_positives(y_true,y_pred):
+    one_indices=K.cast(tf.where(K.equal(y_true,1.0)),'int32')
+    y_true_subset=tf.gather_nd(y_true,one_indices)
+    y_pred_subset=tf.gather_nd(y_pred,one_indices)
+    positive_accuracy=K.sum(K.cast(K.equal(y_true_subset,K.round(y_pred_subset)),'int32'))
+    return positive_accuracy 
+
+
+def true_negatives(y_true,y_pred):
+    one_indices=K.cast(tf.where(K.equal(y_true,0.0)),'int32')
+    y_true_subset=tf.gather_nd(y_true,one_indices)
+    y_pred_subset=tf.gather_nd(y_pred,one_indices)
+    negative_accuracy=K.sum(K.cast(K.equal(y_true_subset,K.round(y_pred_subset)),'int32'))
+    return negative_accuracy 
+
+
+def false_positives(y_true,y_pred):
+    one_indices=K.cast(tf.where(K.equal(y_true,1.0)),'int32')
+    y_true_subset=tf.gather_nd(y_true,one_indices)
+    y_pred_subset=tf.gather_nd(y_pred,one_indices)
+    positive_accuracy=K.sum(K.cast(K.not_equal(y_true_subset,K.round(y_pred_subset)),'int32'))
+    return positive_accuracy 
+
+
+def false_negatives(y_true,y_pred):
+    one_indices=K.cast(tf.where(K.equal(y_true,0.0)),'int32')
+    y_true_subset=tf.gather_nd(y_true,one_indices)
+    y_pred_subset=tf.gather_nd(y_pred,one_indices)
+    negative_accuracy=K.sum(K.cast(K.not_equal(y_true_subset,K.round(y_pred_subset)),'int32'))
+    return negative_accuracy 
 
 def categorical_accuracy(y_true, y_pred):
     '''Calculates the mean accuracy rate across all predictions for
@@ -108,7 +155,7 @@ def kullback_leibler_divergence(y_true, y_pred):
     '''
     y_true = K.clip(y_true, K.epsilon(), 1)
     y_pred = K.clip(y_pred, K.epsilon(), 1)
-    return K.sum(y_true * K.log(y_true / y_pred), axis=-1)
+    return K.mean(K.sum(y_true * K.log(y_true / y_pred), axis=-1))
 
 
 def poisson(y_true, y_pred):
@@ -168,7 +215,7 @@ def recall(y_true, y_pred):
     return recall
 
 
-def fbeta_score(y_true, y_pred, beta):
+def fbeta_score(y_true, y_pred, beta=1):
     '''Calculates the F score, the weighted harmonic mean of precision and recall.
 
     This is useful for multi-label classification, where input samples can be
