@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 import numpy as np
 from . import backend as K
-from theano import printing 
+#from theano import printing 
 import pdb 
 
 
