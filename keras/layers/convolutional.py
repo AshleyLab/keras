@@ -172,6 +172,48 @@ class Convolution1D(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
+class Compute1DReverseComplement(Layer):
+    '''Reverses the length and channel dimensions of its input. No parameters.
+
+    # Arguments
+        input_dim: Number of channels/dimensions in the input.
+            Either this argument or the keyword argument `input_shape`must be
+            provided when using this layer as the first layer in a model.
+        input_length: Length of input sequences, when it is constant.
+            This argument is required if you are going to connect
+            `Flatten` then `Dense` layers upstream
+            (without it, the shape of the dense outputs cannot be computed).
+
+    # Input shape
+        3D tensor with shape: `(samples, steps, input_dim)`.
+
+    # Output shape
+        3D tensor with shape: `(samples, steps, input_dim)`.
+    '''
+    def __init__(self, input_dim=None, input_length=None, **kwargs):
+        self.input_dim = input_dim
+        self.input_length = input_length
+        if self.input_dim:
+            kwargs['input_shape'] = (self.input_length, self.input_dim)
+        super(Compute1DReverseComplement, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        #no weights; nothing to build
+        self.built = True
+
+    def get_output_shape_for(self, input_shape):
+        return (input_shape[0], input_shape[1], input_shape[2])
+
+    def call(self, x, mask=None):
+        return x[:, ::-1, ::-1]
+
+    def get_config(self):
+        config = {'input_dim': self.input_dim,
+                  'input_length': self.input_length}
+        base_config = super(Compute1DReverseComplement, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
 class RevCompConv1D(Convolution1D):
     '''Like Convolution1D, except the reverse-complement filters with tied
     weights are added in the channel dimension. The reverse complement
