@@ -120,11 +120,7 @@ class Graph(Model):
         else:
             raise Exception('Uknown dtype (should be "int" or "float"): ' +
                             str(dtype))
-
-        # create input layer
-        input_layer = InputLayer(input_shape=input_shape,
-                                 batch_input_shape=batch_input_shape,
-                                 name=name, input_dtype=dtype)
+        input_layer=InputLayer(dtype=dtype,batch_input_shape=batch_input_shape,name=name,input_shape=input_shape)
         self._graph_inputs[name] = input_layer
 
         # append input config to self._graph_input_config
@@ -748,13 +744,13 @@ class Graph(Model):
             return conf
 
         graph = cls()
-        inputs = config['config'].get('input_config')
+        inputs = config.get('input_config')
         for input in inputs:
             graph.add_input(**input)
 
-        nodes = config['config'].get('node_config')
+        nodes = config.get('node_config')
         for node in nodes:
-            layer_config = config['config']['nodes'][node['name']]
+            layer_config = config['nodes'][node['name']]
             layer_config = normalize_legacy_config(layer_config)
             if 'layer' in node:
                 # for add_shared_node
@@ -769,7 +765,7 @@ class Graph(Model):
             else:
                 graph.add_node(**node)
 
-        outputs = config['config'].get('output_config')
+        outputs = config.get('output_config')
         for output in outputs:
             graph.add_output(**output)
         return graph
@@ -778,3 +774,30 @@ class Graph(Model):
         if not self.built:
             self.build()
         super(Graph, self).load_weights(fname)
+from .layers import Merge
+
+
+def needs_legacy_support(model):
+    return isinstance(model.layers[0], Merge)
+
+
+def legacy_sequential_layers(model):
+    layers = []
+    if model.layers:
+        if isinstance(model.layers[0], Merge):
+            merge = model.layers[0]
+            for layer in merge.layers:
+                if hasattr(layer, 'layers'):
+                    for sublayer in layer.layers:
+                        if sublayer not in layers:
+                            layers.append(sublayer)
+                else:
+                    if layer not in layers:
+                        layers.append(layer)
+        else:
+            if model.layers[0] not in layers:
+                layers.append(model.layers[0])
+        for layer in model.layers[1:]:
+            if layer not in layers:
+                layers.append(layer)
+    return layers
