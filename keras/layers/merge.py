@@ -207,9 +207,8 @@ class Grad(_Merge):
         self.task_index = task_index
         
     def _merge_function(self, inputs):
-        pdb.set_trace() 
         the_inp=inputs[0]
-        the_out=inputs[1][:,self.task_index]
+        the_out=inputs[1][:,:,self.task_index]
         return K.gradients(K.sum(the_out),the_inp)
 
     def _compute_elemwise_op_output_shape(self, shape1, shape2):
