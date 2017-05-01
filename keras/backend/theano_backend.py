@@ -2243,3 +2243,10 @@ def foldr(fn, elems, initializer=None, name=None):
     fn2 = lambda x, acc: fn(acc, x)
 
     return theano.foldr(fn2, elems, initializer, name=name)[0]
+#KUNDAJE LAB WRAPPERS -- BASICALLY FOR COMPATIBILITY WITH THEANO/TF BACKENDS
+def where(condition,x=None,y=None,name=None):
+    raise Exception("the where function is not implemented for theano in keras/backend/theano_backend.py!")
+
+
+def gather_nd(params,indices,name=None):
+    raise Exception("the gather_nd function is not implemented for theano in keras/backend/theano_backend.py!")

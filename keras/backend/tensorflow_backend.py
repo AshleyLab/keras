@@ -3591,3 +3591,10 @@ def foldr(fn, elems, initializer=None, name=None):
         Same type and shape as initializer
     """
     return tf.foldr(fn, elems, initializer=initializer, name=name)
+
+#KUNDAJE LAB WRAPPERS -- BASICALLY FOR COMPATIBILITY WITH THEANO/TF BACKENDS
+def where(condition,x=None,y=None,name=None):
+    return tf.where(condition,x,y,name)
+
+def gather_nd(params,indices,name=None):
+    return tf.gather_nd(params,indices,name)
