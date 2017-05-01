@@ -84,13 +84,18 @@ def get_positionwise_cosine_1d(pool_size,
                           data_format=data_format,
                           pool_mode='avg')*pool_size       
     def positionwise_cosine_1d(y_true,y_pred):
+        y_true=y_true-K.expand_dims(K.mean(y_true,axis=2),axis=2)
+        y_pred = y_pred-K.expand_dims(K.mean(y_pred,axis=2),axis=2)  
+        mask_y_true= K.cast(K.greater(K.abs(y_true),0),'float32')
+        y_pred=y_pred*mask_y_true 
         elemwise_prod=y_true*y_pred
         pooled_elemwise_prod=do_sum_pool_1d(elemwise_prod)
         y_true_mag=K.sqrt(do_sum_pool_1d(y_true*y_true))
         y_pred_mag=K.sqrt(do_sum_pool_1d(y_pred*y_pred))
-        return pooled_elemwise_prod/(y_true_mag*y_pred_mag+pseudocount)
+        #return (y_true_mag*y_pred_mag)/(pooled_elemwise_prod+pseudocount)
+        return -1*pooled_elemwise_prod/(y_true_mag*y_pred_mag+pseudocount)
     return positionwise_cosine_1d
-
+    
 
 #This may or may not be a useful function:
 #does it make sense to have task weights for regression? 
