@@ -886,6 +886,7 @@ class Model(Container):
 
         # Compute total loss.
         total_loss = None
+        self._all_losses = []
         for i in range(len(self.outputs)):
             if i in skip_indices:
                 continue
@@ -900,6 +901,7 @@ class Model(Container):
             if len(self.outputs) > 1:
                 self.metrics_tensors.append(output_loss)
                 self.metrics_names.append(self.output_names[i] + '_loss')
+            self._all_losses.append(output_loss*loss_weight)
             if total_loss is None:
                 total_loss = loss_weight * output_loss
             else:

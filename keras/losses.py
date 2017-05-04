@@ -77,23 +77,32 @@ def get_positionwise_cosine_1d(pool_size,
                                pseudocount=0.00001):
     padding=normalize_padding(padding) 
     def do_sum_pool_1d(input_to_pool):
-        return K.pool2d(K.expand_dims(input_to_pool,2),
+        #sum channels, replace w/ dummy
+        input_to_pool = K.expand_dims(K.sum(input_to_pool,axis=-1),axis=2)
+        #sum lengthwise
+        return K.squeeze(K.squeeze(K.pool2d(K.expand_dims(input_to_pool,2),
                           pool_size=(pool_size,1),
                           strides=(strides,1),
                           padding=padding,
                           data_format=data_format,
-                          pool_mode='avg')*pool_size       
+                          pool_mode='avg')*pool_size,axis=2),axis=2)  
     def positionwise_cosine_1d(y_true,y_pred):
         y_true=y_true-K.expand_dims(K.mean(y_true,axis=2),axis=2)
         y_pred = y_pred-K.expand_dims(K.mean(y_pred,axis=2),axis=2)  
-        mask_y_true= K.cast(K.greater(K.abs(y_true),0),'float32')
-        y_pred=y_pred*mask_y_true 
+#        mask_y_true= K.cast(K.greater(K.abs(y_true),0),'float32')
+#        y_pred=y_pred*mask_y_true 
         elemwise_prod=y_true*y_pred
         pooled_elemwise_prod=do_sum_pool_1d(elemwise_prod)
-        y_true_mag=K.sqrt(do_sum_pool_1d(y_true*y_true))
-        y_pred_mag=K.sqrt(do_sum_pool_1d(y_pred*y_pred))
-        #return (y_true_mag*y_pred_mag)/(pooled_elemwise_prod+pseudocount)
-        return -1*pooled_elemwise_prod/(y_true_mag*y_pred_mag+pseudocount)
+        y_true_mag=K.sqrt(do_sum_pool_1d(y_true*y_true)+pseudocount)
+        y_pred_mag=K.sqrt(K.abs(do_sum_pool_1d(y_pred*y_pred))+pseudocount)
+       # K.squeeze(K.squeeze(K.pool2d(
+       #     K.expand_dims(K.expand_dims(pooled_elemwise_prod,2),2), 
+       #                   pool_size=(pool_size,1),                              
+       #                   strides=(strides,1),                                  
+       #                   padding=padding,                                      
+       #                   data_format=data_format,                              
+       #                   pool_mode='avg')*pool_size,axis=2),axis=2)
+        return K.sum(-(pooled_elemwise_prod)/(y_true_mag*y_pred_mag+pseudocount),axis=1)
     return positionwise_cosine_1d
     
 
