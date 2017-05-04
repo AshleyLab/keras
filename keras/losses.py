@@ -89,19 +89,20 @@ def get_positionwise_cosine_1d(pool_size,
     def positionwise_cosine_1d(y_true,y_pred):
         y_true=y_true-K.expand_dims(K.mean(y_true,axis=2),axis=2)
         y_pred = y_pred-K.expand_dims(K.mean(y_pred,axis=2),axis=2)  
-#        mask_y_true= K.cast(K.greater(K.abs(y_true),0),'float32')
-#        y_pred=y_pred*mask_y_true 
+        mask_y_true= K.cast(K.greater(K.abs(y_true),0),'float32')
+        sum_pool_mask=do_sum_pool_1d(mask_y_true)
+        max_pool_sum_pool_mask = K.squeeze(K.squeeze(K.pool2d(
+            K.expand_dims(K.expand_dims(sum_pool_mask,2),2), 
+                          pool_size=(pool_size,1),                              
+                          strides=(strides,1),                                  
+                          padding=padding,                                      
+                          data_format=data_format,                              
+                          pool_mode='max'),axis=2),axis=2)
+        nonoverlap_mask=K.cast(K.equal(max_pool_sum_pool_mask,sum_pool_mask),'float32')
         elemwise_prod=y_true*y_pred
-        pooled_elemwise_prod=do_sum_pool_1d(elemwise_prod)
+        pooled_elemwise_prod=do_sum_pool_1d(elemwise_prod)*nonoverlap_mask
         y_true_mag=K.sqrt(do_sum_pool_1d(y_true*y_true)+pseudocount)
         y_pred_mag=K.sqrt(K.abs(do_sum_pool_1d(y_pred*y_pred))+pseudocount)
-       # K.squeeze(K.squeeze(K.pool2d(
-       #     K.expand_dims(K.expand_dims(pooled_elemwise_prod,2),2), 
-       #                   pool_size=(pool_size,1),                              
-       #                   strides=(strides,1),                                  
-       #                   padding=padding,                                      
-       #                   data_format=data_format,                              
-       #                   pool_mode='avg')*pool_size,axis=2),axis=2)
         return K.sum(-(pooled_elemwise_prod)/(y_true_mag*y_pred_mag+pseudocount),axis=1)
     return positionwise_cosine_1d
     
