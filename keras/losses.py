@@ -71,6 +71,7 @@ def cosine_proximity(y_true, y_pred):
 
 #KUNDAJE LAB FUNCTIONS
 def get_positionwise_cosine_1d(pool_size,
+                               non_zero_penalty,
                                strides=1,
                                padding='same',
                                data_format='channels_last',
@@ -103,7 +104,11 @@ def get_positionwise_cosine_1d(pool_size,
         pooled_elemwise_prod=do_sum_pool_1d(elemwise_prod)*nonoverlap_mask
         y_true_mag=K.sqrt(do_sum_pool_1d(y_true*y_true)+pseudocount)
         y_pred_mag=K.sqrt(K.abs(do_sum_pool_1d(y_pred*y_pred))+pseudocount)
-        return K.sum(-(pooled_elemwise_prod)/(y_true_mag*y_pred_mag+pseudocount),axis=1)
+
+        positive_loss = K.sum(-(pooled_elemwise_prod)/(y_true_mag*y_pred_mag+pseudocount),axis=1)
+        negative_loss = K.sum(K.abs((1-mask_y_true)*(y_pred))*non_zero_penalty)
+
+        return positive_loss + negative_loss
     return positionwise_cosine_1d
     
 
