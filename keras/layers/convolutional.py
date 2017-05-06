@@ -434,7 +434,6 @@ class GeneralizedWeightedSum1D(Layer):
         self.output_dim = output_dim
 
     def build(self, input_shape):
-        self.num_samples = input_shape[0]
         self.length = input_shape[1]
         self.num_channels = input_shape[2]
         self.W_pos = self.add_weight(
@@ -455,7 +454,7 @@ class GeneralizedWeightedSum1D(Layer):
         W_output = K.reshape(W_output,
           (self.output_dim, self.length*self.num_channels))
         x = K.reshape(x,
-          (self.num_samples, self.length*self.num_channels))
+          (-1, self.length*self.num_channels))
         output = K.dot(x, K.transpose(W_output))
         return output 
 
