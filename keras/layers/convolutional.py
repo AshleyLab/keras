@@ -419,6 +419,7 @@ class WeightedSum1D(Layer):
         base_config = super(WeightedSum1D, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
+
 class GeneralizedWeightedSum1D(Layer):
     '''A More General Version of WeightedSum1D
     # Arguments
@@ -433,16 +434,18 @@ class GeneralizedWeightedSum1D(Layer):
         self.output_dim = output_dim
 
     def build(self, input_shape):
-        #input_shape[0] is the batch index
-        #input_shape[1] is length of input
-        #input_shape[2] is number of filters
-
         self.num_samples = input_shape[0]
         self.length = input_shape[1]
         self.num_channels = input_shape[2]
-        self.W_shape = (self.output_dim, self.length+self.num_channels)
-        self.W = self.add_weight(shape = self.W_shape,
-            name='{}_W'.format(self.name))
+
+        self.W_pos = self.add_weight(
+            shape = (self.output_dim, self.length),
+            name='{}_W_pos'.format(self.name), initializer='uniform',
+            trainable=True)
+        self.W_chan = self.add_weight(
+            shape = (self.output_dim, self.num_channels),
+            name='{}_W_chan'.format(self.name), initializer='uniform',
+            trainable=True)
         self.built = True
 
     #3D input -> 2D output
@@ -450,9 +453,7 @@ class GeneralizedWeightedSum1D(Layer):
         return (input_shape[0], self.output_dim)
     
     def call(self, x, mask=None):
-        W_pos = self.W[:,:self.length]
-        W_chan = self.W[:,self.length:]
-        W_output = K.expand_dims(W_pos, 2) * K.expand_dims(W_chan, 1)
+        W_output = K.expand_dims(self.W_pos, 2) * K.expand_dims(self.W_chan, 1)
         W_output = K.reshape(self.output_dim, (self.length*self.num_channels))
         x = K.reshape(self.num_samples, (self.length*self.num_channels))
         output = K.dot(x, K.transpose(W_output))
@@ -462,6 +463,7 @@ class GeneralizedWeightedSum1D(Layer):
         config = {'output_dim': self.output_dim}
         base_config = super(GeneralizedWeightedSum1D, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
 
 class AtrousConvolution1D(Convolution1D):
     '''Atrous Convolution operator for filtering neighborhoods of one-dimensional inputs.
