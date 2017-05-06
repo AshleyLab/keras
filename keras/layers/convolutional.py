@@ -437,7 +437,6 @@ class GeneralizedWeightedSum1D(Layer):
         self.num_samples = input_shape[0]
         self.length = input_shape[1]
         self.num_channels = input_shape[2]
-
         self.W_pos = self.add_weight(
             shape = (self.output_dim, self.length),
             name='{}_W_pos'.format(self.name), initializer='uniform',
@@ -448,14 +447,15 @@ class GeneralizedWeightedSum1D(Layer):
             trainable=True)
         self.built = True
 
-    #3D input -> 2D output
     def get_output_shape_for(self, input_shape):
         return (input_shape[0], self.output_dim)
     
     def call(self, x, mask=None):
         W_output = K.expand_dims(self.W_pos, 2) * K.expand_dims(self.W_chan, 1)
-        W_output = K.reshape(self.output_dim, (self.length*self.num_channels))
-        x = K.reshape(self.num_samples, (self.length*self.num_channels))
+        W_output = K.reshape(W_output,
+          (self.output_dim, self.length*self.num_channels))
+        x = K.reshape(x,
+          (self.num_samples, self.length*self.num_channels))
         output = K.dot(x, K.transpose(W_output))
         return output 
 
