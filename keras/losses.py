@@ -71,7 +71,9 @@ def cosine_proximity(y_true, y_pred):
 
 #KUNDAJE LAB FUNCTIONS
 def get_positionwise_cosine_1d(pool_size,
+                               shape_reward,
                                non_zero_penalty,
+                               gradient_minimum,
                                strides=1,
                                padding='same',
                                data_format='channels_last',
@@ -99,16 +101,19 @@ def get_positionwise_cosine_1d(pool_size,
                           padding=padding,                                      
                           data_format=data_format,                              
                           pool_mode='max'),axis=2),axis=2)
-        nonoverlap_mask=K.cast(K.equal(max_pool_sum_pool_mask,sum_pool_mask),'float32')
+        nonoverlap_mask=(K.cast(K.equal(max_pool_sum_pool_mask,sum_pool_mask),'float32')
+                         *K.cast(K.greater(sum_pool_mask,0.0),'float32'))
         elemwise_prod=y_true*y_pred
         pooled_elemwise_prod=do_sum_pool_1d(elemwise_prod)*nonoverlap_mask
         y_true_mag=K.sqrt(do_sum_pool_1d(y_true*y_true)+pseudocount)
         y_pred_mag=K.sqrt(K.abs(do_sum_pool_1d(y_pred*y_pred))+pseudocount)
 
         positive_loss = K.sum(-(pooled_elemwise_prod)/(y_true_mag*y_pred_mag+pseudocount),axis=1)
-        negative_loss = K.sum(K.abs((1-mask_y_true)*(y_pred))*non_zero_penalty)
-
-        return positive_loss + negative_loss
+        negative_loss = K.sum(K.sum(K.abs((1-mask_y_true)*(y_pred))*non_zero_penalty,axis=2),axis=1)
+        magnitude_loss = K.sum(nonoverlap_mask*(gradient_minimum 
+                        - K.minimum(do_sum_pool_1d(K.abs(mask_y_true*y_pred)),
+                                    gradient_minimum)),axis=1)
+        return shape_reward*positive_loss + negative_loss + magnitude_loss
     return positionwise_cosine_1d
     
 
