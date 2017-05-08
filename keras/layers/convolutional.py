@@ -420,17 +420,21 @@ class WeightedSum1D(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class GeneralizedWeightedSum1D(Layer):
-    '''A More General Version of WeightedSum1D
+class SeparableFC(Layer):
+    '''A Fully-Connected layer with a separable kernel. The kernel is
+       the product of a W_pos, concerned with spatial correlations, and
+       W_chan, concerned with cross-channel correlations.
+
     # Arguments
         output_dim: the number of output neurons
+
     # Input shape
         3D tensor with shape: `(samples, steps, features)`.
     # Output shape
         2D tensor with shape: `(samples, output_features)`.
     '''
     def __init__(self, output_dim, **kwargs):
-        super(GeneralizedWeightedSum1D, self).__init__(**kwargs)
+        super(SeparableFC, self).__init__(**kwargs)
         self.output_dim = output_dim
 
     def build(self, input_shape):
@@ -460,7 +464,7 @@ class GeneralizedWeightedSum1D(Layer):
 
     def get_config(self):
         config = {'output_dim': self.output_dim}
-        base_config = super(GeneralizedWeightedSum1D, self).get_config()
+        base_config = super(SeparableFC, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
