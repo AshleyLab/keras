@@ -438,15 +438,20 @@ class SeparableFC(Layer):
         self.output_dim = output_dim
 
     def build(self, input_shape):
+        import numpy as np
         self.length = input_shape[1]
         self.num_channels = input_shape[2]
+	self.init = (lambda shape, name: initializations.uniform(
+            shape, np.sqrt(
+            np.sqrt(2.0/(self.length*self.num_channels+self.output_dim))),
+            name))
         self.W_pos = self.add_weight(
             shape = (self.output_dim, self.length),
-            name='{}_W_pos'.format(self.name), initializer='uniform',
+            name='{}_W_pos'.format(self.name), initializer=self.init,
             trainable=True)
         self.W_chan = self.add_weight(
             shape = (self.output_dim, self.num_channels),
-            name='{}_W_chan'.format(self.name), initializer='uniform',
+            name='{}_W_chan'.format(self.name), initializer=self.init,
             trainable=True)
         self.built = True
 
