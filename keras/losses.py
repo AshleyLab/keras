@@ -74,6 +74,8 @@ def get_positionwise_cosine_1d(pool_size,
                                shape_reward,
                                non_zero_penalty,
                                gradient_minimum,
+                               grad_min_penalty,
+                               use_euclid=False,
                                strides=1,
                                padding='same',
                                data_format='channels_last',
@@ -89,7 +91,8 @@ def get_positionwise_cosine_1d(pool_size,
                           padding=padding,
                           data_format=data_format,
                           pool_mode='avg')*pool_size,axis=2),axis=2)  
-    def positionwise_cosine_1d(y_true,y_pred):
+
+    def positionwise_cosine_1d_pieces(y_true,y_pred):
         y_true=y_true-K.expand_dims(K.mean(y_true,axis=2),axis=2)
         y_pred = y_pred-K.expand_dims(K.mean(y_pred,axis=2),axis=2)  
         mask_y_true= K.cast(K.greater(K.abs(y_true),0),'float32')
@@ -108,13 +111,30 @@ def get_positionwise_cosine_1d(pool_size,
         y_true_mag=K.sqrt(do_sum_pool_1d(y_true*y_true)+pseudocount)
         y_pred_mag=K.sqrt(K.abs(do_sum_pool_1d(y_pred*y_pred))+pseudocount)
 
-        positive_loss = K.sum(-(pooled_elemwise_prod)/(y_true_mag*y_pred_mag+pseudocount),axis=1)
+        positionwise_cosine = (pooled_elemwise_prod)/(y_true_mag*y_pred_mag+pseudocount)
+        positive_loss = K.sum(-positionwise_cosine,axis=1)
+        positive_loss_euclid = K.sum(K.sqrt(K.abs(nonoverlap_mask*do_sum_pool_1d(K.square(y_true-y_pred)))+0.000001),axis=1)
+        if (use_euclid==True):
+            positive_loss=positive_loss_euclid
         negative_loss = K.sum(K.sum(K.abs((1-mask_y_true)*(y_pred))*non_zero_penalty,axis=2),axis=1)
-        magnitude_loss = K.sum(nonoverlap_mask*(gradient_minimum 
-                        - K.minimum(do_sum_pool_1d(K.abs(mask_y_true*y_pred)),
-                                    gradient_minimum)),axis=1)
-        return shape_reward*positive_loss + negative_loss + magnitude_loss
-    return positionwise_cosine_1d
+
+        sum_grad_mag = K.sum(K.sum(K.abs(mask_y_true*y_pred),axis=1),axis=1)
+        ratio = gradient_minimum/(K.minimum(sum_grad_mag+0.00001,gradient_minimum)) 
+        idealised_y_pred = (y_pred*mask_y_true)*K.expand_dims(K.expand_dims(ratio,axis=1),axis=1)
+
+        throttle = (positionwise_cosine+1.0)/2.0
+        sliding_window_pred_grad_sum = do_sum_pool_1d(K.abs(y_pred)) 
+        reward = -K.minimum(sliding_window_pred_grad_sum, gradient_minimum)*throttle
+        magnitude_loss = K.sum(reward,axis=1)
+        return (shape_reward*positive_loss+negative_loss+grad_min_penalty*magnitude_loss,
+                positive_loss, negative_loss, magnitude_loss,
+                positionwise_cosine, reward)
+
+    def positionwise_cosine_1d(y_true, y_pred):
+        vals=positionwise_cosine_1d_pieces(y_true, y_pred)        
+        return vals[0]
+
+    return positionwise_cosine_1d,positionwise_cosine_1d_pieces
     
 
 #This may or may not be a useful function:
