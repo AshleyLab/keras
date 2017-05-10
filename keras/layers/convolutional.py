@@ -421,13 +421,14 @@ class WeightedSum1D(Layer):
 
 
 class SeparableFC(Layer):
-    '''A Fully-Connected layer with a separable kernel. The kernel is
-       the product of a W_pos, concerned with spatial correlations, and
-       W_chan, concerned with cross-channel correlations.
-
+    '''A Fully-Connected layer with a weights tensor that is
+       the product of a tensor W_pos, concerned with spatial correlations,
+       and a tensor W_chan, concerned with cross-channel correlations.
     # Arguments
         output_dim: the number of output neurons
-
+        symmetric: if weights are to be symmetric along length, set to True
+        smoothness_penalty: penalty to be applied to absolute difference
+            of adjacent weights in the length dimensions
     # Input shape
         3D tensor with shape: `(samples, steps, features)`.
     # Output shape
@@ -436,18 +437,27 @@ class SeparableFC(Layer):
     def __init__(self, output_dim, **kwargs):
         super(SeparableFC, self).__init__(**kwargs)
         self.output_dim = output_dim
+        self.symmetric = symmetric
+        self.smoothness_penalty = smoothness_penalty
 
     def build(self, input_shape):
         import numpy as np
-        self.length = input_shape[1]
+        if (self.symmetric == False):
+            self.length = input_shape[1]
+        else:
+            self.odd_input_length = input_shape[1]%2.0 == 1
+            self.length = int(input_shape[1]/2.0 + 0.5)
         self.num_channels = input_shape[2]
-	self.init = (lambda shape, name: initializations.uniform(
+        self.init = (lambda shape, name: initializations.uniform(
             shape, np.sqrt(
             np.sqrt(2.0/(self.length*self.num_channels+self.output_dim))),
             name))
         self.W_pos = self.add_weight(
             shape = (self.output_dim, self.length),
             name='{}_W_pos'.format(self.name), initializer=self.init,
+            regularizer=(None if self.smoothness_penalty is None else
+                regularizers.SmoothnessRegularizer(
+                    self.smoothness_penalty))
             trainable=True)
         self.W_chan = self.add_weight(
             shape = (self.output_dim, self.num_channels),
@@ -459,7 +469,14 @@ class SeparableFC(Layer):
         return (input_shape[0], self.output_dim)
     
     def call(self, x, mask=None):
-        W_output = K.expand_dims(self.W_pos, 2) * K.expand_dims(self.W_chan, 1)
+        if (self.symmetric == False):
+            W_pos = self.W_pos
+        else:
+            W_pos = K.concatenate(
+                tensors=[self.W_pos,
+                self.W_pos.T[::-1][(1 if self.odd_input_length else 0):].T],
+                axis=1)
+        W_output = K.expand_dims(W_pos, 2) * K.expand_dims(self.W_chan, 1)
         W_output = K.reshape(W_output,
           (self.output_dim, self.length*self.num_channels))
         x = K.reshape(x,
@@ -468,7 +485,9 @@ class SeparableFC(Layer):
         return output 
 
     def get_config(self):
-        config = {'output_dim': self.output_dim}
+        config = {'output_dim': self.output_dim,
+                  'symmetric': self.symmetric,
+                  'smoothness_penalty': self.smoothness_penalty}
         base_config = super(SeparableFC, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
