@@ -457,8 +457,7 @@ class SeparableFC(Layer):
             name='{}_W_pos'.format(self.name), initializer=self.init,
             regularizer=(None if self.smoothness_penalty is None else
                 regularizers.SmoothnessRegularizer(
-                    self.smoothness_penalty))
-            trainable=True)
+                    self.smoothness_penalty)))
         self.W_chan = self.add_weight(
             shape = (self.output_dim, self.num_channels),
             name='{}_W_chan'.format(self.name), initializer=self.init,
