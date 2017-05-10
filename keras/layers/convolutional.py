@@ -434,7 +434,7 @@ class SeparableFC(Layer):
     # Output shape
         2D tensor with shape: `(samples, output_features)`.
     '''
-    def __init__(self, output_dim, **kwargs):
+    def __init__(self, output_dim, symmetric, smoothness_penalty, **kwargs):
         super(SeparableFC, self).__init__(**kwargs)
         self.output_dim = output_dim
         self.symmetric = symmetric
