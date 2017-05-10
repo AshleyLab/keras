@@ -443,6 +443,7 @@ class SeparableFC(Layer):
 
     def build(self, input_shape):
         import numpy as np
+        self.original_length = input_shape[1]
         if (self.symmetric == False):
             self.length = input_shape[1]
         else:
@@ -474,13 +475,13 @@ class SeparableFC(Layer):
         else:
             W_pos = K.concatenate(
                 tensors=[self.W_pos,
-                self.W_pos.T[::-1][(1 if self.odd_input_length else 0):].T],
+                self.W_pos[:,::-1][:,(1 if self.odd_input_length else 0):]],
                 axis=1)
         W_output = K.expand_dims(W_pos, 2) * K.expand_dims(self.W_chan, 1)
         W_output = K.reshape(W_output,
-          (self.output_dim, self.length*self.num_channels))
+          (self.output_dim, self.original_length*self.num_channels))
         x = K.reshape(x,
-          (-1, self.length*self.num_channels))
+          (-1, self.original_length*self.num_channels))
         output = K.dot(x, K.transpose(W_output))
         return output 
 
