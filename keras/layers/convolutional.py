@@ -422,8 +422,9 @@ class WeightedSum1D(Layer):
 
 class SeparableFC(Layer):
     '''A Fully-Connected layer with a weights tensor that is
-       the product of a tensor W_pos, concerned with spatial correlations,
-       and a tensor W_chan, concerned with cross-channel correlations.
+       the product of a matrix W_pos, for learning spatial correlations,
+       and a matrix W_chan, for learning cross-channel correlations.
+
     # Arguments
         output_dim: the number of output neurons
         symmetric: if weights are to be symmetric along length, set to True
