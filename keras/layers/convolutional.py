@@ -424,23 +424,32 @@ class SeparableFC(Layer):
     '''A Fully-Connected layer with a weights tensor that is
        the product of a matrix W_pos, for learning spatial correlations,
        and a matrix W_chan, for learning cross-channel correlations.
-
     # Arguments
         output_dim: the number of output neurons
         symmetric: if weights are to be symmetric along length, set to True
-        smoothness_penalty: penalty to be applied to absolute difference
+        smoothness_penalty: penalty to be applied to difference
             of adjacent weights in the length dimensions
+        smoothness_l1: if smoothness penalty is to be computed in terms of the
+            the absolute difference, set to True
+            otherwise, penalty is computed in terms of the squared difference
+        smoothness_second_diff: if smoothness penalty is to be applied to the
+            difference of the difference, set to True
+            otherwise, penalty is applied to the first difference
     # Input shape
         3D tensor with shape: `(samples, steps, features)`.
     # Output shape
         2D tensor with shape: `(samples, output_features)`.
     '''
     def __init__(self, output_dim, symmetric,
-                       smoothness_penalty=None, **kwargs):
+                       smoothness_penalty=None,
+                       smoothness_l1 = False,
+                       smoothness_second_diff = True,  **kwargs):
         super(SeparableFC, self).__init__(**kwargs)
         self.output_dim = output_dim
         self.symmetric = symmetric
         self.smoothness_penalty = smoothness_penalty
+        self.smoothness_l1 = smoothness_l1
+        self.smoothness_second_diff = smoothness_second_diff
 
     def build(self, input_shape):
         import numpy as np
@@ -460,7 +469,9 @@ class SeparableFC(Layer):
             name='{}_W_pos'.format(self.name), initializer=self.init,
             regularizer=(None if self.smoothness_penalty is None else
                 regularizers.SmoothnessRegularizer(
-                    self.smoothness_penalty)))
+                    self.smoothness_penalty,
+                    self.smoothness_l1,
+                    self.smoothness_second_diff)))
         self.W_chan = self.add_weight(
             shape = (self.output_dim, self.num_channels),
             name='{}_W_chan'.format(self.name), initializer=self.init,
@@ -489,7 +500,9 @@ class SeparableFC(Layer):
     def get_config(self):
         config = {'output_dim': self.output_dim,
                   'symmetric': self.symmetric,
-                  'smoothness_penalty': self.smoothness_penalty}
+                  'smoothness_penalty': self.smoothness_penalty,
+                  'smoothness_l1': self.smoothness_l1,
+                  'smoothness_second_diff': self.smoothness_second_diff}
         base_config = super(SeparableFC, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
