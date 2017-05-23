@@ -23,22 +23,31 @@ class Regularizer(object):
                       'and it will be removed after 06/2017.')
 
 
+
 class SmoothnessRegularizer(Regularizer):
 
-    def __init__(self, smoothness, l1=True):
+    def __init__(self, smoothness, l1=True, second_diff=False):
         self.smoothness = smoothness
         self.l1 = l1
+        self.second_diff = second_diff
 
     def __call__(self, x):
-        if self.l1 = True:
-            return K.mean(K.abs(x[1:, :]-x[:-1,:]))*self.smoothness
+        diff1 = x[1:, :]-x[:-1,:]
+        diff2 = diff1[1:, :]-diff1[:-1,:]
+        if self.second_diff = True:
+            diff = diff2
         else:
-            return K.mean(K.square(x[1:, :]-x[:-1,:]))*self.smoothness
+            diff = diff1
+        if self.l1 = True:
+            return K.mean(K.abs(diff))*self.smoothness
+        else:
+            return K.mean(K.square(diff))*self.smoothness
 
     def get_config(self):
         return {'name': self.__class__.__name__,
                 'smoothness': float(self.smoothness),
-                'l1': bool(self.l1)}
+                'l1': bool(self.l1),
+                'second_diff': bool(self.second_diff)}
 
 
 class EigenvalueRegularizer(Regularizer):
