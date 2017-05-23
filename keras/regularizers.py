@@ -25,16 +25,20 @@ class Regularizer(object):
 
 class SmoothnessRegularizer(Regularizer):
 
-    def __init__(self, smoothness):
+    def __init__(self, smoothness, l1=True):
         self.smoothness = smoothness
+        self.l1 = l1
 
     def __call__(self, x):
-        return K.mean(K.abs(x[1:, :]-x[:-1,:]))*self.smoothness
+        if self.l1 = True:
+            return K.mean(K.abs(x[1:, :]-x[:-1,:]))*self.smoothness
+        else:
+            return K.mean(K.square(x[1:, :]-x[:-1,:]))*self.smoothness
 
     def get_config(self):
         return {'name': self.__class__.__name__,
-                'smoothness': float(self.smoothness)}
-
+                'smoothness': float(self.smoothness),
+                'l1': bool(self.l1)}
 
 
 class EigenvalueRegularizer(Regularizer):
