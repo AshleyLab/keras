@@ -32,8 +32,8 @@ class SmoothnessRegularizer(Regularizer):
         self.second_diff = second_diff
 
     def __call__(self, x):
-        diff1 = x[1:, :]-x[:-1,:]
-        diff2 = diff1[1:, :]-diff1[:-1,:]
+        diff1 = x[:,1:] - x[:,:-1]
+        diff2 = diff1[:,1:] - diff1[:,:-1]
         if self.second_diff == True:
             diff = diff2
         else:
