@@ -675,7 +675,7 @@ class Model(Container):
     """
 
     def compile(self, optimizer, loss, metrics=None, loss_weights=None,
-                sample_weight_mode=None, **kwargs):
+                sample_weight_mode=None, extra_train_outputs=None, **kwargs):
         """Configures the model for training.
 
         # Arguments
@@ -721,6 +721,19 @@ class Model(Container):
         self.sample_weight_mode = sample_weight_mode
         self.loss = loss
         self.loss_weights = loss_weights
+
+        self.extra_train_outputs = ([] if extra_train_outputs is None else
+                                    extra_train_outputs)
+
+        extra_train_output_names = []
+
+        for x in extra_train_outputs:
+            layer = x._keras_history[0]
+            if layer not in self.layers:
+                raise ValueError('Extra train output not part of the model!')
+            extra_train_output_names.append(layer.name)
+
+        self.extra_train_output_names = extra_train_output_names
 
         # Prepare loss functions.
         if isinstance(loss, dict):
@@ -1015,7 +1028,7 @@ class Model(Container):
             updates = self.updates + training_updates
             # Gets loss and metrics. Updates weights at each call.
             self.train_function = K.function(inputs,
-                                             [self.total_loss] + self.metrics_tensors,
+                                             [self.total_loss] + self.metrics_tensors + self.extra_train_outputs,
                                              updates=updates,
                                              name='train_function',
                                              **self._function_kwargs)
@@ -1806,6 +1819,8 @@ class Model(Container):
         # Prepare display labels.
         out_labels = self._get_deduped_metrics_names()
         callback_metrics = out_labels + ['val_' + n for n in out_labels]
+
+        out_labels.extend(self.extra_train_output_names)
 
         # prepare callbacks
         self.history = cbks.History()
