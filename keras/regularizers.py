@@ -25,8 +25,20 @@ class Regularizer(object):
                       'and it will be removed after 06/2017.')
 
 
-
 class SmoothnessRegularizer(Regularizer):
+
+    def __init__(self, smoothness):
+        self.smoothness = smoothness
+
+    def __call__(self, x):
+        return K.mean(K.abs(x[1:, :]-x[:-1,:]))*self.smoothness
+
+    def get_config(self):
+        return {'name': self.__class__.__name__,
+                'smoothness': float(self.smoothness)}
+        
+        
+class SepFCSmoothnessRegularizer(Regularizer):
 
     def __init__(self, smoothness, l1=True, second_diff=False):
         self.smoothness = smoothness

@@ -485,7 +485,7 @@ class SeparableFC(Layer):
             shape = (self.output_dim, self.length),
             name='{}_W_pos'.format(self.name), initializer=self.init,
             regularizer=(None if self.smoothness_penalty is None else
-                regularizers.SmoothnessRegularizer(
+                regularizers.SepFCSmoothnessRegularizer(
                     self.smoothness_penalty,
                     self.smoothness_l1,
                     self.smoothness_second_diff)))
