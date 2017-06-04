@@ -83,6 +83,19 @@ class UnitNorm(Constraint):
                 'axis': self.axis}
 
 
+class MeanNormConv1D(Constraint):
+    '''Constrain the weights to have mean norm.
+
+    # Arguments
+        axis: integer, axis along which to calculate mean norms. 
+    '''
+    def __call__(self, p):
+        return p - K.mean(p, axis=-2)[:,:,None,:]
+
+    def get_config(self):
+        return {'name': self.__class__.__name__}
+
+
 maxnorm = MaxNorm
 nonneg = NonNeg
 unitnorm = UnitNorm

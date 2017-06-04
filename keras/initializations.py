@@ -60,6 +60,23 @@ def glorot_uniform(shape, name=None, dim_ordering='th'):
     return uniform(shape, s, name=name)
 
 
+def glorot_uniform_2xin(shape, name=None, dim_ordering='th'):
+    fan_in, fan_out = get_fans(shape, dim_ordering=dim_ordering)
+    s = np.sqrt(6. / (fan_in*2 + fan_out))
+    return uniform(shape, s, name=name)
+
+
+def weightedsuminit(shape, name=None, dim_ordering='th'):
+    import numpy as np 
+    assert len(shape)==2
+    print("SHAPE",shape)
+    s = 1.0/(shape[0]*shape[1]*10.0)
+    rand_weights = (
+        np.random.uniform(low=-s, high=s, size=(shape[1],))[None,:]*
+        np.ones(shape))
+    return K.variable(rand_weights, name=name) 
+
+
 def fanintimesfanouttimesfanout(shape, name=None, dim_ordering='th'):
     fan_in, fan_out = get_fans(shape, dim_ordering=dim_ordering)
     s = np.sqrt(6. / (fan_in*fan_out*fan_out))

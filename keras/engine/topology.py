@@ -1223,7 +1223,7 @@ class Merge(Layer):
             a list of layer instances. Must be more
             than one layer/tensor.
         mode: String or lambda/function. If string, must be one
-            of: 'sum', 'mul', 'concat', 'ave', 'cos', 'dot', 'max'.
+            of: 'sum', 'mul', 'concat', 'ave', 'cos', 'dot', 'max' or 'grads'.
             If lambda/function, it should take as input a list of tensors
             and return a single tensor.
         concat_axis: Integer, axis to use in mode `concat`.
@@ -1303,7 +1303,8 @@ class Merge(Layer):
         as appropriate.
         '''
         if not callable(mode):
-            if mode not in {'sum', 'mul', 'concat', 'ave', 'cos', 'dot', 'max'}:
+            if mode not in {'sum', 'mul', 'concat', 'ave', 'cos',
+                            'dot', 'max', 'grads'}:
                 raise ValueError('Invalid merge mode: ' + str(mode))
         if not isinstance(layers, (list, tuple)) or len(layers) < 2:
             raise TypeError('A Merge should only be applied to a list of '
@@ -1364,6 +1365,9 @@ class Merge(Layer):
                                  'layers with matching '
                                  'output shapes except for the concat axis. '
                                  'Layer shapes: %s' % (input_shapes))
+        if (mode == 'grads'):
+            if len(layers) > 2:
+                raise ValueError(mode + ' merge takes exactly 2 layers') 
 
     def call(self, inputs, mask=None):
         if not isinstance(inputs, list) or len(inputs) <= 1:
@@ -1413,6 +1417,10 @@ class Merge(Layer):
             output = K.batch_dot(l1, l2, self.dot_axes) / denominator
             output = K.expand_dims(output, 1)
             return output
+        elif self.mode == 'grads':
+            the_inp = inputs[0]
+            the_out = inputs[1] 
+            return K.gradients(K.sum(the_out), the_inp) 
         else:
             raise ValueError('Unknown merge mode.')
 
@@ -1482,6 +1490,8 @@ class Merge(Layer):
         if self.mode in ['sum', 'mul', 'ave', 'max']:
             # All tuples in input_shapes should be the same.
             return input_shapes[0]
+        elif self.mode == 'grads':
+            return input_shape[0] #grads of the sum(output) w.r.t. the input
         elif self.mode == 'concat':
             output_shape = list(input_shapes[0])
             for shape in input_shapes[1:]:

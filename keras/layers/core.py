@@ -796,7 +796,7 @@ class Dense(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class DenseAfterRevcompConv1DLayer(Dense):
+class DenseAfterRevcompConv1D(Dense):
     '''For dense layers that follow 1D Convolutional or Pooling layers that
     have reverse-complement weight sharing
     '''
@@ -813,7 +813,7 @@ class DenseAfterRevcompConv1DLayer(Dense):
         self.input_spec = [InputSpec(dtype=K.floatx(),
                                      ndim='2+')]
 
-        self.W = self.add_weight((input_length, num_chan/2, self.output_dim),
+        self.W = self.add_weight((input_length*num_chan/2, self.output_dim),
                                  initializer=self.init,
                                  name='{}_W'.format(self.name),
                                  regularizer=self.W_regularizer,
