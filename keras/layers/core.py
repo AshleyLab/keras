@@ -832,10 +832,17 @@ class DenseAfterRevcompConv1DLayer(Dense):
             del self.initial_weights
         self.built = True
 
+    def get_output_shape_for(self, input_shape):
+        assert input_shape and len(input_shape) == 3
+        output_shape = [input_shape[0], self.output_dim]
+        return tuple(output_shape)
+
     def call(self, x, mask=None):
-        output = K.sum(K.sum(x*K.concatenate(
-                    tensors=[self.W, self.W[::-1,::-1,:]], axis=1),
-                    axis=0),axis=1)
+        concatenated_reshaped_W = K.reshape(K.concatenate(
+            tensors=[self.W, self.W[::-1,::-1,:]], axis=1),
+            (self.input_length*self.num_chan, self.output_dim))
+        reshaped_x = K.reshape(x, (-1, self.input_length*self.num_chan))
+        output = K.dot(reshaped_x, concatenated_reshaped_W)
         if self.bias:
             output += self.b
         return self.activation(output)
