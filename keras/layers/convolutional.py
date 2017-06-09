@@ -3,17 +3,27 @@ from __future__ import absolute_import
 import functools
 
 from .. import backend as K
-from .. import activations, initializations, regularizers, constraints
-from ..engine import Layer, InputSpec
-from ..utils.np_utils import conv_output_length, conv_input_length
+from .. import activations
+from .. import initializations
+from .. import regularizers
+from .. import constraints
+from ..engine import Layer
+from ..engine import InputSpec
+from ..utils.np_utils import conv_output_length
+from ..utils.np_utils import conv_input_length
 
 # imports for backwards namespace compatibility
-from .pooling import AveragePooling1D, AveragePooling2D, AveragePooling3D
-from .pooling import MaxPooling1D, MaxPooling2D, MaxPooling3D
+from .pooling import AveragePooling1D
+from .pooling import AveragePooling2D
+from .pooling import AveragePooling3D
+from .pooling import MaxPooling1D
+from .pooling import MaxPooling2D
+from .pooling import MaxPooling3D
 
 
 class Convolution1D(Layer):
-    '''Convolution operator for filtering neighborhoods of one-dimensional inputs.
+    """Convolution operator for filtering neighborhoods of 1-D inputs.
+
     When using this layer as the first layer in a model,
     either provide the keyword argument `input_dim`
     (int, e.g. 128 for sequences of 128-dimensional vectors),
@@ -39,16 +49,18 @@ class Convolution1D(Layer):
             (dimensionality of the output).
         filter_length: The extension (spatial or temporal) of each filter.
         init: name of initialization function for the weights of the layer
-            (see [initializations](../initializations.md)),
-            or alternatively, Theano function to use for weights initialization.
-            This parameter is only relevant if you don't pass a `weights` argument.
+            (see [initializations](../initializations.md)), or alternatively,
+            Theano function to use for weights initialization.
+            This parameter is only relevant
+            if you don't pass a `weights` argument.
         activation: name of activation function to use
             (see [activations](../activations.md)),
             or alternatively, elementwise Theano function.
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: a(x) = x).
         weights: list of numpy arrays to set as initial weights.
-        border_mode: 'valid', 'same' or 'full'. ('full' requires the Theano backend.)
+        border_mode: 'valid', 'same' or 'full'
+            ('full' requires the Theano backend).
         subsample_length: factor by which to subsample output.
         W_regularizer: instance of [WeightRegularizer](../regularizers.md)
             (eg. L1 or L2 regularization), applied to the main weights matrix.
@@ -76,11 +88,13 @@ class Convolution1D(Layer):
     # Output shape
         3D tensor with shape: `(samples, new_steps, nb_filter)`.
         `steps` value might have changed due to padding.
-    '''
+    """
+
     def __init__(self, nb_filter, filter_length,
                  init='glorot_uniform', activation=None, weights=None,
                  border_mode='valid', subsample_length=1,
-                 W_regularizer=None, b_regularizer=None, activity_regularizer=None,
+                 W_regularizer=None, b_regularizer=None,
+                 activity_regularizer=None,
                  W_constraint=None, b_constraint=None,
                  bias=True, input_dim=None, input_length=None, **kwargs):
 
@@ -420,8 +434,99 @@ class WeightedSum1D(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
+class SeparableFC(Layer):
+    '''A Fully-Connected layer with a weights tensor that is
+       the product of a matrix W_pos, for learning spatial correlations,
+       and a matrix W_chan, for learning cross-channel correlations.
+       
+    # Arguments
+        output_dim: the number of output neurons
+        symmetric: if weights are to be symmetric along length, set to True
+        smoothness_penalty: penalty to be applied to difference
+            of adjacent weights in the length dimensions
+        smoothness_l1: if smoothness penalty is to be computed in terms of the
+            the absolute difference, set to True
+            otherwise, penalty is computed in terms of the squared difference
+        smoothness_second_diff: if smoothness penalty is to be applied to the
+            difference of the difference, set to True
+            otherwise, penalty is applied to the first difference
+            
+    # Input shape
+        3D tensor with shape: `(samples, steps, features)`.
+        
+    # Output shape
+        2D tensor with shape: `(samples, output_features)`.
+    '''
+    def __init__(self, output_dim, symmetric,
+                       smoothness_penalty=None,
+                       smoothness_l1 = False,
+                       smoothness_second_diff = True,  **kwargs):
+        super(SeparableFC, self).__init__(**kwargs)
+        self.output_dim = output_dim
+        self.symmetric = symmetric
+        self.smoothness_penalty = smoothness_penalty
+        self.smoothness_l1 = smoothness_l1
+        self.smoothness_second_diff = smoothness_second_diff
+
+    def build(self, input_shape):
+        import numpy as np
+        self.original_length = input_shape[1]
+        if (self.symmetric == False):
+            self.length = input_shape[1]
+        else:
+            self.odd_input_length = input_shape[1]%2.0 == 1
+            self.length = int(input_shape[1]/2.0 + 0.5)
+        self.num_channels = input_shape[2]
+        self.init = (lambda shape, name: initializations.uniform(
+            shape, np.sqrt(
+            np.sqrt(2.0/(self.length*self.num_channels+self.output_dim))),
+            name))
+        self.W_pos = self.add_weight(
+            shape = (self.output_dim, self.length),
+            name='{}_W_pos'.format(self.name), initializer=self.init,
+            regularizer=(None if self.smoothness_penalty is None else
+                regularizers.SepFCSmoothnessRegularizer(
+                    self.smoothness_penalty,
+                    self.smoothness_l1,
+                    self.smoothness_second_diff)))
+        self.W_chan = self.add_weight(
+            shape = (self.output_dim, self.num_channels),
+            name='{}_W_chan'.format(self.name), initializer=self.init,
+            trainable=True)
+        self.built = True
+
+    def get_output_shape_for(self, input_shape):
+        return (input_shape[0], self.output_dim)
+    
+    def call(self, x, mask=None):
+        if (self.symmetric == False):
+            W_pos = self.W_pos
+        else:
+            W_pos = K.concatenate(
+                tensors=[self.W_pos,
+                self.W_pos[:,::-1][:,(1 if self.odd_input_length else 0):]],
+                axis=1)
+        W_output = K.expand_dims(W_pos, 2) * K.expand_dims(self.W_chan, 1)
+        W_output = K.reshape(W_output,
+          (self.output_dim, self.original_length*self.num_channels))
+        x = K.reshape(x,
+          (-1, self.original_length*self.num_channels))
+        output = K.dot(x, K.transpose(W_output))
+        return output 
+
+    def get_config(self):
+        config = {'output_dim': self.output_dim,
+                  'symmetric': self.symmetric,
+                  'smoothness_penalty': self.smoothness_penalty,
+                  'smoothness_l1': self.smoothness_l1,
+                  'smoothness_second_diff': self.smoothness_second_diff}
+        base_config = super(SeparableFC, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
 class AtrousConvolution1D(Convolution1D):
-    '''Atrous Convolution operator for filtering neighborhoods of one-dimensional inputs.
+    """Atrous Convolution operator for filtering neighborhoods of 1-D inputs.
+
     A.k.a dilated convolution or convolution with holes.
     When using this layer as the first layer in a model,
     either provide the keyword argument `input_dim`
@@ -432,14 +537,18 @@ class AtrousConvolution1D(Convolution1D):
     # Example
 
     ```python
-        # apply an atrous convolution 1d with atrous rate 2 of length 3 to a sequence with 10 timesteps,
+        # apply an atrous convolution 1d
+        # with atrous rate 2 of length 3 to a sequence with 10 timesteps,
         # with 64 output filters
         model = Sequential()
-        model.add(AtrousConvolution1D(64, 3, atrous_rate=2, border_mode='same', input_shape=(10, 32)))
+        model.add(AtrousConvolution1D(64, 3, atrous_rate=2,
+                                      border_mode='same',
+                                      input_shape=(10, 32)))
         # now model.output_shape == (None, 10, 64)
 
         # add a new atrous conv1d on top
-        model.add(AtrousConvolution1D(32, 3, atrous_rate=2, border_mode='same'))
+        model.add(AtrousConvolution1D(32, 3, atrous_rate=2,
+                                      border_mode='same'))
         # now model.output_shape == (None, 10, 32)
     ```
 
@@ -448,16 +557,18 @@ class AtrousConvolution1D(Convolution1D):
             (dimensionality of the output).
         filter_length: The extension (spatial or temporal) of each filter.
         init: name of initialization function for the weights of the layer
-            (see [initializations](../initializations.md)),
-            or alternatively, Theano function to use for weights initialization.
-            This parameter is only relevant if you don't pass a `weights` argument.
+            (see [initializations](../initializations.md)), or alternatively,
+            Theano function to use for weights initialization.
+            This parameter is only relevant
+            if you don't pass a `weights` argument.
         activation: name of activation function to use
             (see [activations](../activations.md)),
             or alternatively, elementwise Theano function.
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: a(x) = x).
         weights: list of numpy arrays to set as initial weights.
-        border_mode: 'valid', 'same' or 'full'. ('full' requires the Theano backend.)
+        border_mode: 'valid', 'same' or 'full'
+            ('full' requires the Theano backend).
         subsample_length: factor by which to subsample output.
         atrous_rate: Factor for kernel dilation. Also called filter_dilation
             elsewhere.
@@ -487,11 +598,13 @@ class AtrousConvolution1D(Convolution1D):
     # Output shape
         3D tensor with shape: `(samples, new_steps, nb_filter)`.
         `steps` value might have changed due to padding.
-    '''
+    """
+
     def __init__(self, nb_filter, filter_length,
                  init='glorot_uniform', activation=None, weights=None,
                  border_mode='valid', subsample_length=1, atrous_rate=1,
-                 W_regularizer=None, b_regularizer=None, activity_regularizer=None,
+                 W_regularizer=None, b_regularizer=None,
+                 activity_regularizer=None,
                  W_constraint=None, b_constraint=None,
                  bias=True, **kwargs):
 
@@ -500,14 +613,15 @@ class AtrousConvolution1D(Convolution1D):
 
         self.atrous_rate = int(atrous_rate)
 
-        super(AtrousConvolution1D, self).__init__(nb_filter, filter_length,
-                                                  init=init, activation=activation,
-                                                  weights=weights, border_mode=border_mode,
-                                                  subsample_length=subsample_length,
-                                                  W_regularizer=W_regularizer, b_regularizer=b_regularizer,
-                                                  activity_regularizer=activity_regularizer,
-                                                  W_constraint=W_constraint, b_constraint=b_constraint,
-                                                  bias=bias, **kwargs)
+        super(AtrousConvolution1D, self).__init__(
+            nb_filter, filter_length,
+            init=init, activation=activation,
+            weights=weights, border_mode=border_mode,
+            subsample_length=subsample_length,
+            W_regularizer=W_regularizer, b_regularizer=b_regularizer,
+            activity_regularizer=activity_regularizer,
+            W_constraint=W_constraint, b_constraint=b_constraint,
+            bias=bias, **kwargs)
 
     def get_output_shape_for(self, input_shape):
         length = conv_output_length(input_shape[1],
@@ -536,7 +650,8 @@ class AtrousConvolution1D(Convolution1D):
 
 
 class Convolution2D(Layer):
-    '''Convolution operator for filtering windows of two-dimensional inputs.
+    """Convolution operator for filtering windows of two-dimensional inputs.
+
     When using this layer as the first layer in a model,
     provide the keyword argument `input_shape`
     (tuple of integers, does not include the sample axis),
@@ -547,7 +662,9 @@ class Convolution2D(Layer):
     ```python
         # apply a 3x3 convolution with 64 output filters on a 256x256 image:
         model = Sequential()
-        model.add(Convolution2D(64, 3, 3, border_mode='same', input_shape=(3, 256, 256)))
+        model.add(Convolution2D(64, 3, 3,
+                                border_mode='same',
+                                input_shape=(3, 256, 256)))
         # now model.output_shape == (None, 64, 256, 256)
 
         # add a 3x3 convolution on top, with 32 output filters:
@@ -570,7 +687,8 @@ class Convolution2D(Layer):
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: a(x) = x).
         weights: list of numpy arrays to set as initial weights.
-        border_mode: 'valid', 'same' or 'full'. ('full' requires the Theano backend.)
+        border_mode: 'valid', 'same' or 'full'
+            ('full' requires the Theano backend).
         subsample: tuple of length 2. Factor by which to subsample output.
             Also called strides elsewhere.
         W_regularizer: instance of [WeightRegularizer](../regularizers.md)
@@ -603,11 +721,13 @@ class Convolution2D(Layer):
         or 4D tensor with shape:
         `(samples, new_rows, new_cols, nb_filter)` if dim_ordering='tf'.
         `rows` and `cols` values might have changed due to padding.
-    '''
+    """
+
     def __init__(self, nb_filter, nb_row, nb_col,
                  init='glorot_uniform', activation=None, weights=None,
                  border_mode='valid', subsample=(1, 1), dim_ordering='default',
-                 W_regularizer=None, b_regularizer=None, activity_regularizer=None,
+                 W_regularizer=None, b_regularizer=None,
+                 activity_regularizer=None,
                  W_constraint=None, b_constraint=None,
                  bias=True, **kwargs):
         if dim_ordering == 'default':
@@ -721,12 +841,14 @@ class Convolution2D(Layer):
 
 
 class Deconvolution2D(Convolution2D):
-    '''Transposed convolution operator for filtering windows of two-dimensional inputs.
-    The need for transposed convolutions generally arises from the desire
-    to use a transformation going in the opposite direction of a normal convolution,
-    i.e., from something that has the shape of the output of some convolution
-    to something that has the shape of its input
-    while maintaining a connectivity pattern that is compatible with said convolution. [1]
+    """Transposed convolution operator for filtering windows of 2-D inputs.
+
+    The need for transposed convolutions generally arises from the desire to
+    use a transformation going in the opposite direction
+    of a normal convolution, i.e., from something that has the shape
+    of the output of some convolution to something that has the shape
+    of its input while maintaining a connectivity pattern
+    that is compatible with said convolution.
 
     When using this layer as the first layer in a model,
     provide the keyword argument `input_shape`
@@ -739,10 +861,14 @@ class Deconvolution2D(Convolution2D):
     # Examples
 
     ```python
-        # apply a 3x3 transposed convolution with stride 1x1 and 3 output filters on a 12x12 image:
+        # apply a 3x3 transposed convolution
+        # with stride 1x1 and 3 output filters on a 12x12 image:
         model = Sequential()
-        model.add(Deconvolution2D(3, 3, 3, output_shape=(None, 3, 14, 14), border_mode='valid', input_shape=(3, 12, 12)))
-        # Note that you will have to change the output_shape depending on the backend used.
+        model.add(Deconvolution2D(3, 3, 3, output_shape=(None, 3, 14, 14),
+                                  border_mode='valid',
+                                  input_shape=(3, 12, 12)))
+        # Note that you will have to change
+        # the output_shape depending on the backend used.
 
         # we can predict with the model and print the shape of the array.
         dummy_input = np.ones((32, 3, 12, 12))
@@ -753,9 +879,13 @@ class Deconvolution2D(Convolution2D):
         # Theano CPU: (None, 3, 14, 14)
         # TensorFlow: (None, 14, 14, 3)
 
-        # apply a 3x3 transposed convolution with stride 2x2 and 3 output filters on a 12x12 image:
+        # apply a 3x3 transposed convolution
+        # with stride 2x2 and 3 output filters on a 12x12 image:
         model = Sequential()
-        model.add(Deconvolution2D(3, 3, 3, output_shape=(None, 3, 25, 25), subsample=(2, 2), border_mode='valid', input_shape=(3, 12, 12)))
+        model.add(Deconvolution2D(3, 3, 3, output_shape=(None, 3, 25, 25),
+                                  subsample=(2, 2),
+                                  border_mode='valid',
+                                  input_shape=(3, 12, 12)))
         model.summary()
 
         # we can predict with the model and print the shape of the array.
@@ -773,19 +903,11 @@ class Deconvolution2D(Convolution2D):
         nb_row: Number of rows in the transposed convolution kernel.
         nb_col: Number of columns in the transposed convolution kernel.
         output_shape: Output shape of the transposed convolution operation.
-            tuple of integers (nb_samples, nb_filter, nb_output_rows, nb_output_cols)
-            Formula for calculation of the output shape [1], [2]:
-                o = s (i - 1) + a + k - 2p, \quad a \in \{0, \ldots, s - 1\}
-                where:
-                    i - input size (rows or cols),
-                    k - kernel size (nb_filter),
-                    s - stride (subsample for rows or cols respectively),
-                    p - padding size,
-                    a - user-specified quantity used to distinguish between
-                        the s different possible output sizes.
-             Because a is not specified explicitly and Theano and Tensorflow
-             use different values, it is better to use a dummy input and observe
-             the actual output shape of a layer as specified in the examples.
+            tuple of integers
+            `(nb_samples, nb_filter, nb_output_rows, nb_output_cols)`.
+             It is better to use
+             a dummy input and observe the actual output shape of
+             a layer, as specified in the examples.
         init: name of initialization function for the weights of the layer
             (see [initializations](../initializations.md)), or alternatively,
             Theano function to use for weights initialization.
@@ -797,7 +919,8 @@ class Deconvolution2D(Convolution2D):
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: a(x) = x).
         weights: list of numpy arrays to set as initial weights.
-        border_mode: 'valid', 'same' or 'full'. ('full' requires the Theano backend.)
+        border_mode: 'valid', 'same' or 'full'
+            ('full' requires the Theano backend).
         subsample: tuple of length 2. Factor by which to oversample output.
             Also called strides elsewhere.
         W_regularizer: instance of [WeightRegularizer](../regularizers.md)
@@ -815,7 +938,8 @@ class Deconvolution2D(Convolution2D):
             It defaults to the `image_dim_ordering` value found in your
             Keras config file at `~/.keras/keras.json`.
             If you never set it, then it will be "tf".
-        bias: whether to include a bias (i.e. make the layer affine rather than linear).
+        bias: whether to include a bias
+            (i.e. make the layer affine rather than linear).
 
     # Input shape
         4D tensor with shape:
@@ -831,10 +955,11 @@ class Deconvolution2D(Convolution2D):
         `rows` and `cols` values might have changed due to padding.
 
     # References
-        [1] [A guide to convolution arithmetic for deep learning](https://arxiv.org/abs/1603.07285 "arXiv:1603.07285v1 [stat.ML]")
-        [2] [Transposed convolution arithmetic](http://deeplearning.net/software/theano_versions/dev/tutorial/conv_arithmetic.html#transposed-convolution-arithmetic)
-        [3] [Deconvolutional Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
-    '''
+        - [A guide to convolution arithmetic for deep learning](https://arxiv.org/abs/1603.07285v1)
+        - [Transposed convolution arithmetic](http://deeplearning.net/software/theano_versions/dev/tutorial/conv_arithmetic.html#transposed-convolution-arithmetic)
+        - [Deconvolutional Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
+    """
+
     def __init__(self, nb_filter, nb_row, nb_col, output_shape,
                  init='glorot_uniform', activation=None, weights=None,
                  border_mode='valid', subsample=(1, 1),
@@ -902,7 +1027,8 @@ class Deconvolution2D(Convolution2D):
 
 
 class AtrousConvolution2D(Convolution2D):
-    '''Atrous Convolution operator for filtering windows of two-dimensional inputs.
+    """Atrous Convolution operator for filtering windows of 2-D inputs.
+
     A.k.a dilated convolution or convolution with holes.
     When using this layer as the first layer in a model,
     provide the keyword argument `input_shape`
@@ -912,10 +1038,14 @@ class AtrousConvolution2D(Convolution2D):
     # Examples
 
     ```python
-        # apply a 3x3 convolution with atrous rate 2x2 and 64 output filters on a 256x256 image:
+        # apply a 3x3 convolution with atrous rate 2x2
+        # and 64 output filters on a 256x256 image:
         model = Sequential()
-        model.add(AtrousConvolution2D(64, 3, 3, atrous_rate=(2,2), border_mode='valid', input_shape=(3, 256, 256)))
-        # now the actual kernel size is dilated from 3x3 to 5x5 (3+(3-1)*(2-1)=5)
+        model.add(AtrousConvolution2D(64, 3, 3, atrous_rate=(2,2),
+                                      border_mode='valid',
+                                      input_shape=(3, 256, 256)))
+        # now the actual kernel size is dilated
+        # from 3x3 to 5x5 (3+(3-1)*(2-1)=5)
         # thus model.output_shape == (None, 64, 252, 252)
     ```
 
@@ -934,7 +1064,8 @@ class AtrousConvolution2D(Convolution2D):
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: a(x) = x).
         weights: list of numpy arrays to set as initial weights.
-        border_mode: 'valid', 'same' or 'full'. ('full' requires the Theano backend.)
+        border_mode: 'valid', 'same' or 'full'
+            ('full' requires the Theano backend).
         subsample: tuple of length 2. Factor by which to subsample output.
             Also called strides elsewhere.
         atrous_rate: tuple of length 2. Factor for kernel dilation.
@@ -954,7 +1085,8 @@ class AtrousConvolution2D(Convolution2D):
             It defaults to the `image_dim_ordering` value found in your
             Keras config file at `~/.keras/keras.json`.
             If you never set it, then it will be "tf".
-        bias: whether to include a bias (i.e. make the layer affine rather than linear).
+        bias: whether to include a bias
+            (i.e. make the layer affine rather than linear).
 
     # Input shape
         4D tensor with shape:
@@ -971,12 +1103,14 @@ class AtrousConvolution2D(Convolution2D):
 
     # References
         - [Multi-Scale Context Aggregation by Dilated Convolutions](https://arxiv.org/abs/1511.07122)
-    '''
+    """
+
     def __init__(self, nb_filter, nb_row, nb_col,
                  init='glorot_uniform', activation=None, weights=None,
                  border_mode='valid', subsample=(1, 1),
                  atrous_rate=(1, 1), dim_ordering='default',
-                 W_regularizer=None, b_regularizer=None, activity_regularizer=None,
+                 W_regularizer=None, b_regularizer=None,
+                 activity_regularizer=None,
                  W_constraint=None, b_constraint=None,
                  bias=True, **kwargs):
         if dim_ordering == 'default':
@@ -1047,7 +1181,7 @@ class AtrousConvolution2D(Convolution2D):
 
 
 class SeparableConvolution2D(Layer):
-    '''Separable convolution operator for 2D inputs.
+    """Separable convolution operator for 2D inputs.
 
     Separable convolutions consist in first performing
     a depthwise spatial convolution
@@ -1124,7 +1258,8 @@ class SeparableConvolution2D(Layer):
         or 4D tensor with shape:
         `(samples, new_rows, new_cols, nb_filter)` if dim_ordering='tf'.
         `rows` and `cols` values might have changed due to padding.
-    '''
+    """
+
     def __init__(self, nb_filter, nb_row, nb_col,
                  init='glorot_uniform', activation=None, weights=None,
                  border_mode='valid', subsample=(1, 1),
@@ -1274,7 +1409,8 @@ class SeparableConvolution2D(Layer):
 
 
 class Convolution3D(Layer):
-    '''Convolution operator for filtering windows of three-dimensional inputs.
+    """Convolution operator for filtering windows of three-dimensional inputs.
+
     When using this layer as the first layer in a model,
     provide the keyword argument `input_shape`
     (tuple of integers, does not include the sample axis),
@@ -1296,10 +1432,12 @@ class Convolution3D(Layer):
             If you don't specify anything, no activation is applied
             (ie. "linear" activation: a(x) = x).
         weights: list of Numpy arrays to set as initial weights.
-        border_mode: 'valid', 'same' or 'full'. ('full' requires the Theano backend.)
+        border_mode: 'valid', 'same' or 'full'
+            ('full' requires the Theano backend).
         subsample: tuple of length 3. Factor by which to subsample output.
             Also called strides elsewhere.
-            Note: 'subsample' is implemented by slicing the output of conv3d with strides=(1,1,1).
+            Note: 'subsample' is implemented by slicing
+            the output of conv3d with strides=(1,1,1).
         W_regularizer: instance of [WeightRegularizer](../regularizers.md)
             (eg. L1 or L2 regularization), applied to the main weights matrix.
         b_regularizer: instance of [WeightRegularizer](../regularizers.md),
@@ -1315,7 +1453,8 @@ class Convolution3D(Layer):
             It defaults to the `image_dim_ordering` value found in your
             Keras config file at `~/.keras/keras.json`.
             If you never set it, then it will be "tf".
-        bias: whether to include a bias (i.e. make the layer affine rather than linear).
+        bias: whether to include a bias
+            (i.e. make the layer affine rather than linear).
 
     # Input shape
         5D tensor with shape:
@@ -1329,7 +1468,7 @@ class Convolution3D(Layer):
         or 5D tensor with shape:
         `(samples, new_conv_dim1, new_conv_dim2, new_conv_dim3, nb_filter)` if dim_ordering='tf'.
         `new_conv_dim1`, `new_conv_dim2` and `new_conv_dim3` values might have changed due to padding.
-    '''
+    """
 
     def __init__(self, nb_filter, kernel_dim1, kernel_dim2, kernel_dim3,
                  init='glorot_uniform', activation=None, weights=None,
@@ -1368,7 +1507,6 @@ class Convolution3D(Layer):
 
     def build(self, input_shape):
         assert len(input_shape) == 5
-        self.input_spec = [InputSpec(shape=input_shape)]
 
         if self.dim_ordering == 'th':
             stack_size = input_shape[1]
@@ -1428,11 +1566,9 @@ class Convolution3D(Layer):
             raise ValueError('Invalid dim_ordering:', self.dim_ordering)
 
     def call(self, x, mask=None):
-        input_shape = self.input_spec[0].shape
         output = K.conv3d(x, self.W, strides=self.subsample,
                           border_mode=self.border_mode,
                           dim_ordering=self.dim_ordering,
-                          volume_shape=input_shape,
                           filter_shape=self.W_shape)
         if self.bias:
             if self.dim_ordering == 'th':
@@ -1465,7 +1601,9 @@ class Convolution3D(Layer):
 
 
 class UpSampling1D(Layer):
-    '''Repeat each temporal step `length` times along the time axis.
+    """Upsampling layer for 1D inputs.
+
+    Repeats each temporal step `length` times along the time axis.
 
     # Arguments
         length: integer. Upsampling factor.
@@ -1475,7 +1613,7 @@ class UpSampling1D(Layer):
 
     # Output shape
         3D tensor with shape: `(samples, upsampled_steps, features)`.
-    '''
+    """
 
     def __init__(self, length=2, **kwargs):
         self.length = length
@@ -1497,7 +1635,9 @@ class UpSampling1D(Layer):
 
 
 class UpSampling2D(Layer):
-    '''Repeat the rows and columns of the data
+    """Upsampling layer for 2D inputs.
+
+    Repeats the rows and columns of the data
     by size[0] and size[1] respectively.
 
     # Arguments
@@ -1520,7 +1660,7 @@ class UpSampling2D(Layer):
         `(samples, channels, upsampled_rows, upsampled_cols)` if dim_ordering='th'
         or 4D tensor with shape:
         `(samples, upsampled_rows, upsampled_cols, channels)` if dim_ordering='tf'.
-    '''
+    """
 
     def __init__(self, size=(2, 2), dim_ordering='default', **kwargs):
         if dim_ordering == 'default':
@@ -1561,8 +1701,10 @@ class UpSampling2D(Layer):
 
 
 class UpSampling3D(Layer):
-    '''Repeat the first, second and third dimension of the data
-    by size[0], size[1] and size[2] respectively.
+    """Upsampling layer for 3D inputs.
+
+    Repeats the 1st, 2nd and 3rd dimensions
+    of the data by size[0], size[1] and size[2] respectively.
 
     # Arguments
         size: tuple of 3 integers. The upsampling factors for dim1, dim2 and dim3.
@@ -1584,7 +1726,7 @@ class UpSampling3D(Layer):
         `(samples, channels, upsampled_dim1, upsampled_dim2, upsampled_dim3)` if dim_ordering='th'
         or 5D tensor with shape:
         `(samples, upsampled_dim1, upsampled_dim2, upsampled_dim3, channels)` if dim_ordering='tf'.
-    '''
+    """
 
     def __init__(self, size=(2, 2, 2), dim_ordering='default', **kwargs):
         if dim_ordering == 'default':
@@ -1629,7 +1771,7 @@ class UpSampling3D(Layer):
 
 
 class ZeroPadding1D(Layer):
-    '''Zero-padding layer for 1D input (e.g. temporal sequence).
+    """Zero-padding layer for 1D input (e.g. temporal sequence).
 
     # Arguments
         padding: int, or tuple of int (length 2), or dictionary.
@@ -1644,11 +1786,11 @@ class ZeroPadding1D(Layer):
             If any key is missing, default value of 0 will be used for the missing key.
 
     # Input shape
-        3D tensor with shape (samples, axis_to_pad, features)
+        3D tensor with shape `(samples, axis_to_pad, features)`
 
     # Output shape
-        3D tensor with shape (samples, padded_axis, features)
-    '''
+        3D tensor with shape `(samples, padded_axis, features)`
+    """
 
     def __init__(self, padding=1, **kwargs):
         super(ZeroPadding1D, self).__init__(**kwargs)
@@ -1692,7 +1834,7 @@ class ZeroPadding1D(Layer):
 
 
 class ZeroPadding2D(Layer):
-    '''Zero-padding layer for 2D input (e.g. picture).
+    """Zero-padding layer for 2D input (e.g. picture).
 
     # Arguments
         padding: tuple of int (length 2), or tuple of int (length 4), or dictionary.
@@ -1724,7 +1866,7 @@ class ZeroPadding2D(Layer):
         `(samples, channels, padded_rows, padded_cols)` if dim_ordering='th'
         or 4D tensor with shape:
         `(samples, padded_rows, padded_cols, channels)` if dim_ordering='tf'.
-    '''
+    """
 
     def __init__(self,
                  padding=(1, 1),
@@ -1801,7 +1943,7 @@ class ZeroPadding2D(Layer):
 
 
 class ZeroPadding3D(Layer):
-    '''Zero-padding layer for 3D data (spatial or spatio-temporal).
+    """Zero-padding layer for 3D data (spatial or spatio-temporal).
 
     # Arguments
         padding: tuple of int (length 3)
@@ -1817,12 +1959,12 @@ class ZeroPadding3D(Layer):
 
     # Input shape
         5D tensor with shape:
-        (samples, depth, first_axis_to_pad, second_axis_to_pad, third_axis_to_pad)
+        `(samples, depth, first_axis_to_pad, second_axis_to_pad, third_axis_to_pad)`
 
     # Output shape
         5D tensor with shape:
-        (samples, depth, first_padded_axis, second_padded_axis, third_axis_to_pad)
-    '''
+        `(samples, depth, first_padded_axis, second_padded_axis, third_axis_to_pad)`
+    """
 
     def __init__(self, padding=(1, 1, 1), dim_ordering='default', **kwargs):
         super(ZeroPadding3D, self).__init__(**kwargs)
@@ -1867,7 +2009,8 @@ class ZeroPadding3D(Layer):
 
 
 class Cropping1D(Layer):
-    '''Cropping layer for 1D input (e.g. temporal sequence).
+    """Cropping layer for 1D input (e.g. temporal sequence).
+
     It crops along the time dimension (axis 1).
 
     # Arguments
@@ -1876,11 +2019,11 @@ class Cropping1D(Layer):
             the cropping dimension (axis 1).
 
     # Input shape
-        3D tensor with shape (samples, axis_to_crop, features)
+        3D tensor with shape `(samples, axis_to_crop, features)`
 
     # Output shape
-        3D tensor with shape (samples, cropped_axis, features)
-    '''
+        3D tensor with shape `(samples, cropped_axis, features)`
+    """
 
     def __init__(self, cropping=(1, 1), **kwargs):
         super(Cropping1D, self).__init__(**kwargs)
@@ -1915,7 +2058,8 @@ class Cropping1D(Layer):
 
 
 class Cropping2D(Layer):
-    '''Cropping layer for 2D input (e.g. picture).
+    """Cropping layer for 2D input (e.g. picture).
+
     It crops along spatial dimensions, i.e. width and height.
 
     # Arguments
@@ -1931,11 +2075,11 @@ class Cropping2D(Layer):
 
     # Input shape
         4D tensor with shape:
-        (samples, depth, first_axis_to_crop, second_axis_to_crop)
+        `(samples, depth, first_axis_to_crop, second_axis_to_crop)`
 
     # Output shape
         4D tensor with shape:
-        (samples, depth, first_cropped_axis, second_cropped_axis)
+        `(samples, depth, first_cropped_axis, second_cropped_axis)`
 
     # Examples
 
@@ -1949,8 +2093,7 @@ class Cropping2D(Layer):
         # now model.output_shape == (None, 64, 20, 16)
 
     ```
-
-    '''
+    """
 
     def __init__(self, cropping=((0, 0), (0, 0)), dim_ordering='default', **kwargs):
         super(Cropping2D, self).__init__(**kwargs)
@@ -1988,11 +2131,41 @@ class Cropping2D(Layer):
 
     def call(self, x, mask=None):
         if self.dim_ordering == 'th':
+            if self.cropping[0][1] == self.cropping[1][1] == 0:
+                return x[:,
+                         :,
+                         self.cropping[0][0]:,
+                         self.cropping[1][0]:]
+            elif self.cropping[0][1] == 0:
+                return x[:,
+                         :,
+                         self.cropping[0][0]:,
+                         self.cropping[1][0]:-self.cropping[1][1]]
+            elif self.cropping[1][1] == 0:
+                return x[:,
+                         :,
+                         self.cropping[0][0]:-self.cropping[0][1],
+                         self.cropping[1][0]:]
             return x[:,
                      :,
                      self.cropping[0][0]:-self.cropping[0][1],
                      self.cropping[1][0]:-self.cropping[1][1]]
         elif self.dim_ordering == 'tf':
+            if self.cropping[0][1] == self.cropping[1][1] == 0:
+                return x[:,
+                         self.cropping[0][0]:,
+                         self.cropping[1][0]:,
+                         :]
+            elif self.cropping[0][1] == 0:
+                return x[:,
+                         self.cropping[0][0]:,
+                         self.cropping[1][0]:-self.cropping[1][1],
+                         :]
+            elif self.cropping[1][1] == 0:
+                return x[:,
+                         self.cropping[0][0]:-self.cropping[0][1],
+                         self.cropping[1][0]:,
+                         :]
             return x[:,
                      self.cropping[0][0]:-self.cropping[0][1],
                      self.cropping[1][0]:-self.cropping[1][1],
@@ -2005,7 +2178,7 @@ class Cropping2D(Layer):
 
 
 class Cropping3D(Layer):
-    '''Cropping layer for 3D data (e.g. spatial or spatio-temporal).
+    """Cropping layer for 3D data (e.g. spatial or spatio-temporal).
 
     # Arguments
         cropping: tuple of tuple of int (length 3)
@@ -2020,13 +2193,13 @@ class Cropping3D(Layer):
 
     # Input shape
         5D tensor with shape:
-        (samples, depth, first_axis_to_crop, second_axis_to_crop, third_axis_to_crop)
+        `(samples, depth, first_axis_to_crop, second_axis_to_crop, third_axis_to_crop)`
 
     # Output shape
         5D tensor with shape:
-        (samples, depth, first_cropped_axis, second_cropped_axis, third_cropped_axis)
+        `(samples, depth, first_cropped_axis, second_cropped_axis, third_cropped_axis)`
 
-    '''
+    """
 
     def __init__(self, cropping=((1, 1), (1, 1), (1, 1)),
                  dim_ordering='default', **kwargs):
@@ -2075,12 +2248,96 @@ class Cropping3D(Layer):
 
     def call(self, x, mask=None):
         if self.dim_ordering == 'th':
+            if self.cropping[0][1] == self.cropping[1][1] == self.cropping[2][1] == 0:
+                return x[:,
+                         :,
+                         self.cropping[0][0]:,
+                         self.cropping[1][0]:,
+                         self.cropping[2][0]:]
+            elif self.cropping[0][1] == self.cropping[1][1] == 0:
+                return x[:,
+                         :,
+                         self.cropping[0][0]:,
+                         self.cropping[1][0]:,
+                         self.cropping[2][0]:-self.cropping[2][1]]
+            elif self.cropping[1][1] == self.cropping[2][1] == 0:
+                return x[:,
+                         :,
+                         self.cropping[0][0]:-self.cropping[0][1],
+                         self.cropping[1][0]:,
+                         self.cropping[2][0]:]
+            elif self.cropping[0][1] == self.cropping[2][1] == 0:
+                return x[:,
+                         :,
+                         self.cropping[0][0]:,
+                         self.cropping[1][0]:-self.cropping[1][1],
+                         self.cropping[2][0]:]
+            elif self.cropping[0][1] == 0:
+                return x[:,
+                         :,
+                         self.cropping[0][0]:,
+                         self.cropping[1][0]:-self.cropping[1][1],
+                         self.cropping[2][0]:-self.cropping[2][1]]
+            elif self.cropping[1][1] == 0:
+                return x[:,
+                         :,
+                         self.cropping[0][0]:-self.cropping[0][1],
+                         self.cropping[1][0]:,
+                         self.cropping[2][0]:-self.cropping[2][1]]
+            elif self.cropping[2][1] == 0:
+                return x[:,
+                         :,
+                         self.cropping[0][0]:-self.cropping[0][1],
+                         self.cropping[1][0]:-self.cropping[1][1],
+                         self.cropping[2][0]:]
             return x[:,
                      :,
                      self.cropping[0][0]:-self.cropping[0][1],
                      self.cropping[1][0]:-self.cropping[1][1],
                      self.cropping[2][0]:-self.cropping[2][1]]
         elif self.dim_ordering == 'tf':
+            if self.cropping[0][1] == self.cropping[1][1] == self.cropping[2][1] == 0:
+                return x[:,
+                         self.cropping[0][0]:,
+                         self.cropping[1][0]:,
+                         self.cropping[2][0]:,
+                         :]
+            elif self.cropping[0][1] == self.cropping[1][1] == 0:
+                return x[:,
+                         self.cropping[0][0]:,
+                         self.cropping[1][0]:,
+                         self.cropping[2][0]:-self.cropping[2][1],
+                         :]
+            elif self.cropping[1][1] == self.cropping[2][1] == 0:
+                return x[:,
+                         self.cropping[0][0]:-self.cropping[0][1],
+                         self.cropping[1][0]:,
+                         self.cropping[2][0]:,
+                         :]
+            elif self.cropping[0][1] == self.cropping[2][1] == 0:
+                return x[:,
+                         self.cropping[0][0]:,
+                         self.cropping[1][0]:-self.cropping[1][1],
+                         self.cropping[2][0]:,
+                         :]
+            elif self.cropping[0][1] == 0:
+                return x[:,
+                         self.cropping[0][0]:,
+                         self.cropping[1][0]:-self.cropping[1][1],
+                         self.cropping[2][0]:-self.cropping[2][1],
+                         :]
+            elif self.cropping[1][1] == 0:
+                return x[:,
+                         self.cropping[0][0]:-self.cropping[0][1],
+                         self.cropping[1][0]:,
+                         self.cropping[2][0]:-self.cropping[2][1],
+                         :]
+            elif self.cropping[2][1] == 0:
+                return x[:,
+                         self.cropping[0][0]:-self.cropping[0][1],
+                         self.cropping[1][0]:-self.cropping[1][1],
+                         self.cropping[2][0]:,
+                         :]
             return x[:,
                      self.cropping[0][0]:-self.cropping[0][1],
                      self.cropping[1][0]:-self.cropping[1][1],

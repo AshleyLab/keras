@@ -5,6 +5,8 @@ import warnings
 
 
 class Regularizer(object):
+    """Regularizer base class.
+    """
 
     def __call__(self, x):
         return 0
@@ -34,17 +36,43 @@ class SmoothnessRegularizer(Regularizer):
     def get_config(self):
         return {'name': self.__class__.__name__,
                 'smoothness': float(self.smoothness)}
+        
+        
+class SepFCSmoothnessRegularizer(Regularizer):
 
+    def __init__(self, smoothness, l1=True, second_diff=False):
+        self.smoothness = smoothness
+        self.l1 = l1
+        self.second_diff = second_diff
+
+    def __call__(self, x):
+        diff1 = x[:,1:] - x[:,:-1]
+        diff2 = diff1[:,1:] - diff1[:,:-1]
+        if self.second_diff == True:
+            diff = diff2
+        else:
+            diff = diff1
+        if self.l1 == True:
+            return K.mean(K.abs(diff))*self.smoothness
+        else:
+            return K.mean(K.square(diff))*self.smoothness
+
+    def get_config(self):
+        return {'name': self.__class__.__name__,
+                'smoothness': float(self.smoothness),
+                'l1': bool(self.l1),
+                'second_diff': bool(self.second_diff)}
 
 
 class EigenvalueRegularizer(Regularizer):
-    '''This takes a constant that controls
-    the regularization by Eigenvalue Decay on the
-    current layer and outputs the regularized
-    loss (evaluated on the training data) and
-    the original loss (evaluated on the
-    validation data).
-    '''
+    """Regularizer based on the eignvalues of a weight matrix.
+
+    Only available for tensors of rank 2.
+
+    # Arguments
+        k: Float; modulates the amount of regularization to apply.
+    """
+
     def __init__(self, k):
         self.k = k
 
@@ -72,6 +100,12 @@ class EigenvalueRegularizer(Regularizer):
 
 
 class L1L2Regularizer(Regularizer):
+    """Regularizer for L1 and L2 regularization.
+
+    # Arguments
+        l1: Float; L1 regularization factor.
+        l2: Float; L2 regularization factor.
+    """
 
     def __init__(self, l1=0., l2=0.):
         self.l1 = K.cast_to_floatx(l1)
