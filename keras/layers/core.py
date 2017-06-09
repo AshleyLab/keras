@@ -838,8 +838,10 @@ class DenseAfterRevcompConv1D(Dense):
         return tuple(output_shape)
 
     def call(self, x, mask=None):
+        W = K.reshape(self.W, (self.input_length, int(self.num_chan/2),
+                               self.output_dim))
         concatenated_reshaped_W = K.reshape(K.concatenate(
-            tensors=[self.W, self.W[::-1,::-1,:]], axis=1),
+            tensors=[W, W[::-1,::-1,:]], axis=1),
             (self.input_length*self.num_chan, self.output_dim))
         reshaped_x = K.reshape(x, (-1, self.input_length*self.num_chan))
         output = K.dot(reshaped_x, concatenated_reshaped_W)
