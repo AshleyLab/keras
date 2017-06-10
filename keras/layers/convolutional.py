@@ -186,6 +186,200 @@ class Convolution1D(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
+class GappyConv1D(Layer):
+
+    def __init__(self, nb_filter, half_filter_length, min_gap, max_gap,
+                 init='glorot_uniform', activation=None, weights=None,
+                 border_mode='valid', subsample_length=1,
+                 W_regularizer=None, b_regularizer=None,
+                 activity_regularizer=None,
+                 W_constraint=None, b_constraint=None,
+                 bias=True, input_dim=None, input_length=None, **kwargs):
+
+        if border_mode not in {'valid', 'same', 'full'}:
+            raise ValueError('Invalid border mode for Convolution1D:', border_mode)
+        self.nb_filter = nb_filter
+        self.half_filter_length = half_filter_length
+        self.min_gap = min_gap
+        self.max_gap = max_gap
+        self.num_gaps = ((self.max_gap-self.min_gap)+1)
+        self.init = initializations.get(init)
+        self.activation = activations.get(activation)
+        self.border_mode = border_mode
+        self.subsample_length = subsample_length
+
+        self.subsample = (subsample_length, 1)
+
+        self.W_regularizer = regularizers.get(W_regularizer)
+        self.b_regularizer = regularizers.get(b_regularizer)
+        self.activity_regularizer = regularizers.get(activity_regularizer)
+
+        self.W_constraint = constraints.get(W_constraint)
+        self.b_constraint = constraints.get(b_constraint)
+
+        self.bias = bias
+        self.input_spec = [InputSpec(ndim=3)]
+        self.initial_weights = weights
+        self.input_dim = input_dim
+        self.input_length = input_length
+        if self.input_dim:
+            kwargs['input_shape'] = (self.input_length, self.input_dim)
+        super(GappyConv1D, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        input_dim = input_shape[2]
+        self.W_shape = (2*self.half_filter_length, 1,
+                        input_dim, self.nb_filter)
+
+        self.W = self.add_weight(self.W_shape,
+                                 initializer=functools.partial(self.init,
+                                                               dim_ordering='th'),
+                                 name='{}_W'.format(self.name),
+                                 regularizer=self.W_regularizer,
+                                 constraint=self.W_constraint)
+
+
+#        #gap_weights is a learned weight matrix for
+#        #how much each filter weights the different gap sizes
+#        self.gap_weights = self.add_weight(
+#                            (self.num_gaps, self.nb_filter),
+#                            initializer="one",
+#                            name='{}_gap_weights'.format(self.name),
+#                            regularizer=self.W_regularizer,
+#                            constraint=self.W_constraint)
+
+        W_left = self.W[:self.half_filter_length, :, :, :]
+        W_right = self.W[self.half_filter_length:, :, :, :]
+
+        #build up the final W where all the different gap sizes are
+        #represented
+        Ws_to_stitch = []
+        for gap_size in range(self.min_gap, self.max_gap+1):
+            flank_size = self.max_gap-gap_size
+            left_flank_size = int(flank_gap/2)
+            right_flank_size = flank_size-left_flank_size
+            #not a fan of using K.zeros since that instantiates a
+            #shared variable, but also not sure what else to use
+            left_flank_zeros = K.zeros((left_flank_size, 1,
+                                        input_dim, self.nb_filter))
+            right_flank_zeros = K.zeros((right_flank_size, 1,
+                                         input_dim, self.nb_filter))
+            central_zeros = K.zeros((gap_zise, 1, input_dim, self.nb_filter))
+            Ws_to_stitch.append(K.concatenate([left_flank_zeros, W_left,
+                                         central_zeros, W_right,
+                                         right_flank_zeros], axis=0)) 
+        #stich the spaced Ws along the filter axis
+        self.final_W = K.concatenate(Ws_to_stitch, axis=-1)
+
+        if self.bias:
+            self.b = self.add_weight((self.nb_filter,),
+                                     initializer='zero',
+                                     name='{}_b'.format(self.name),
+                                     regularizer=self.b_regularizer,
+                                     constraint=self.b_constraint)
+        else:
+            self.b = None
+
+        if self.initial_weights is not None:
+            self.set_weights(self.initial_weights)
+            del self.initial_weights
+        self.built = True
+
+    def get_output_shape_for(self, input_shape):
+        length = conv_output_length(input_shape[1],
+                                    2*self.half_filter_length+self.max_gap,
+                                    self.border_mode,
+                                    self.subsample[0])
+        return (input_shape[0], length, self.num_gaps, self.nb_filter)
+
+    def call(self, x, mask=None):
+        x = K.expand_dims(x, 2)  # add a dummy dimension
+        #scan using a weight matrix that has all the different
+        #gap sizes represented
+        with_gaps_output = K.conv2d(x, self.final_W, strides=self.subsample,
+                          border_mode=self.border_mode,
+                          dim_ordering='tf')
+        with_gaps_output = K.squeeze(with_gaps_output, 2)  # remove dummy dim
+        #with_gaps_output is samples x length x num_gaps*num_filters
+        reshape_with_gaps_output = K.reshape(output, (-1, self.output_shape[1], 
+                                             self.num_gaps, self.nb_filter))
+        if (self.bias):
+            reshape_with_gaps_output += K.reshape(
+                                         self.b, (1, 1, 1, self.nb_filter))
+        reshape_with_gaps_output = self.activation(reshape_with_gaps_output)
+        return reshape_with_gaps_output
+#
+#        weighted_gaps = (K.expand_dims(K.expand_dims(self.gap_weights,0),0)*
+#                         reshape_with_gaps_output)
+#        summed_weighted_gaps = K.sum(weighted_gaps, axis=2)
+#        return summed_weighted_gaps
+
+    def get_config(self):
+        config = {'nb_filter': self.nb_filter,
+                  'half_filter_length': self.half_filter_length,
+                  'min_gap': self.min_gap,
+                  'max_gap': self.max_gap,
+                  'init': self.init.__name__,
+                  'activation': self.activation.__name__,
+                  'border_mode': self.border_mode,
+                  'subsample_length': self.subsample_length,
+                  'W_regularizer': self.W_regularizer.get_config() if self.W_regularizer else None,
+                  'b_regularizer': self.b_regularizer.get_config() if self.b_regularizer else None,
+                  'activity_regularizer': self.activity_regularizer.get_config() if self.activity_regularizer else None,
+                  'W_constraint': self.W_constraint.get_config() if self.W_constraint else None,
+                  'b_constraint': self.b_constraint.get_config() if self.b_constraint else None,
+                  'bias': self.bias,
+                  'input_dim': self.input_dim,
+                  'input_length': self.input_length}
+        base_config = super(GappyConv1D, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
+class WeightedSumOfGapsConv1D(Layer):
+
+    def __init__(self, weights=None,
+                 W_regularizer=None,
+                 activity_regularizer=None,
+                 W_constraint=None,
+                 **kwargs):
+
+        self.W_regularizer = regularizers.get(W_regularizer)
+        self.activity_regularizer = regularizers.get(activity_regularizer)
+        self.W_constraint = constraints.get(W_constraint)
+        self.input_spec = [InputSpec(ndim=4)]
+        self.initial_weights = weights
+        super(WeightedSumOfGapsConv1D, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        assert len(input_shape)==4
+        self.num_gaps = self.input_shape[2]
+        self.nb_filter = self.input_shape[3]
+        self.W_shape = (1,1,self.num_gaps, self.nb_filter)
+        self.W = self.add_weight(self.W_shape,
+                                 initializer=functools.partial(
+                                    "one",
+                                    dim_ordering='th'),
+                                 name='{}_W'.format(self.name))
+
+        if self.initial_weights is not None:
+            self.set_weights(self.initial_weights)
+            del self.initial_weights
+        self.built = True
+
+    def get_output_shape_for(self, input_shape):
+        return (input_shape[0], input_shape[1], input_shape[3])
+
+    def call(self, x, mask=None):
+        return K.mean(self.W*x,axis=2)
+
+    def get_config(self):
+        config = {'W_regularizer': self.W_regularizer.get_config() if self.W_regularizer else None,
+                  'activity_regularizer': self.activity_regularizer.get_config() if self.activity_regularizer else None,
+                  'W_constraint': self.W_constraint.get_config() if self.W_constraint else None}
+        base_config = super(WeightedSumOfGapsConv1D, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
 class Compute1DReverseComplement(Layer):
     '''Reverses the length and channel dimensions of its input. No parameters.
 
