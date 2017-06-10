@@ -228,6 +228,12 @@ class GappyConv1D(Layer):
 
     def build(self, input_shape):
         input_dim = input_shape[2]
+        #I use self.output_length in the call function
+        self.output_length = conv_output_length(input_shape[1],
+                                    2*self.half_filter_length+self.max_gap,
+                                    self.border_mode,
+                                    self.subsample[0])
+
         self.W_shape = (2*self.half_filter_length, 1,
                         input_dim, self.nb_filter)
 
@@ -238,33 +244,24 @@ class GappyConv1D(Layer):
                                  regularizer=self.W_regularizer,
                                  constraint=self.W_constraint)
 
-
-#        #gap_weights is a learned weight matrix for
-#        #how much each filter weights the different gap sizes
-#        self.gap_weights = self.add_weight(
-#                            (self.num_gaps, self.nb_filter),
-#                            initializer="one",
-#                            name='{}_gap_weights'.format(self.name),
-#                            regularizer=self.W_regularizer,
-#                            constraint=self.W_constraint)
-
         W_left = self.W[:self.half_filter_length, :, :, :]
         W_right = self.W[self.half_filter_length:, :, :, :]
 
         #build up the final W where all the different gap sizes are
         #represented
         Ws_to_stitch = []
+        import numpy as np
         for gap_size in range(self.min_gap, self.max_gap+1):
             flank_size = self.max_gap-gap_size
-            left_flank_size = int(flank_gap/2)
+            left_flank_size = int(flank_size/2)
             right_flank_size = flank_size-left_flank_size
-            #not a fan of using K.zeros since that instantiates a
-            #shared variable, but also not sure what else to use
+            #K.zeros is less than ideal as it makes a shared variable
             left_flank_zeros = K.zeros((left_flank_size, 1,
-                                        input_dim, self.nb_filter))
+                          input_dim, self.nb_filter))
             right_flank_zeros = K.zeros((right_flank_size, 1,
-                                         input_dim, self.nb_filter))
-            central_zeros = K.zeros((gap_size, 1, input_dim, self.nb_filter))
+                          input_dim, self.nb_filter))
+            central_zeros = K.zeros((gap_size, 1,
+                          input_dim, self.nb_filter))
             Ws_to_stitch.append(K.concatenate([left_flank_zeros, W_left,
                                          central_zeros, W_right,
                                          right_flank_zeros], axis=0)) 
@@ -302,8 +299,9 @@ class GappyConv1D(Layer):
         with_gaps_output = K.squeeze(with_gaps_output, 2)  # remove dummy dim
         #with_gaps_output is samples x length x (num_gaps*num_filters)
         #reshape to samples x length x num_gaps x num_filters
-        reshape_with_gaps_output = K.reshape(output, (-1, self.output_shape[1], 
-                                             self.num_gaps, self.nb_filter))
+        reshape_with_gaps_output = K.reshape(
+            with_gaps_output, (-1, self.output_length, 
+                               self.num_gaps, self.nb_filter))
         if (self.bias):
             reshape_with_gaps_output += K.reshape(
                                          self.b, (1, 1, 1, self.nb_filter))
@@ -331,7 +329,16 @@ class GappyConv1D(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class WeightedSumOfGapsConv1D(Layer):
+class MaxForGappyConv1D(Layer):
+
+    def get_output_shape_for(self, input_shape):
+        return (input_shape[0], input_shape[1], input_shape[3])
+
+    def call(self, x, mask=None):
+        return K.max(x,axis=2)
+
+
+class WeightedSumForGappyConv1D(Layer):
 
     def __init__(self, weights=None,
                  W_regularizer=None,
@@ -344,20 +351,20 @@ class WeightedSumOfGapsConv1D(Layer):
         self.W_constraint = constraints.get(W_constraint)
         self.input_spec = [InputSpec(ndim=4)]
         self.initial_weights = weights
-        super(WeightedSumOfGapsConv1D, self).__init__(**kwargs)
+        super(WeightedSumForGappyConv1D, self).__init__(**kwargs)
 
     def build(self, input_shape):
         assert len(input_shape)==4
-        self.num_gaps = self.input_shape[2]
-        self.nb_filter = self.input_shape[3]
+        self.num_gaps = input_shape[2]
+        self.nb_filter = input_shape[3]
         self.W_shape = (1,1,self.num_gaps, self.nb_filter)
         self.W = self.add_weight(self.W_shape,
                                  initializer=functools.partial(
-                                    "one",
+                                    initializations.get("one"),
                                     dim_ordering='th'),
                                  name='{}_W'.format(self.name),
-                                 W_regularizer=self.W_regularizer,
-                                 W_constraint=self.W_constraint)
+                                 regularizer=self.W_regularizer,
+                                 constraint=self.W_constraint)
 
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
@@ -374,7 +381,7 @@ class WeightedSumOfGapsConv1D(Layer):
         config = {'W_regularizer': self.W_regularizer.get_config() if self.W_regularizer else None,
                   'activity_regularizer': self.activity_regularizer.get_config() if self.activity_regularizer else None,
                   'W_constraint': self.W_constraint.get_config() if self.W_constraint else None}
-        base_config = super(WeightedSumOfGapsConv1D, self).get_config()
+        base_config = super(WeightedSumForGappyConv1D, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
