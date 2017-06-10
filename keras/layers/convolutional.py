@@ -264,7 +264,7 @@ class GappyConv1D(Layer):
                                         input_dim, self.nb_filter))
             right_flank_zeros = K.zeros((right_flank_size, 1,
                                          input_dim, self.nb_filter))
-            central_zeros = K.zeros((gap_zise, 1, input_dim, self.nb_filter))
+            central_zeros = K.zeros((gap_size, 1, input_dim, self.nb_filter))
             Ws_to_stitch.append(K.concatenate([left_flank_zeros, W_left,
                                          central_zeros, W_right,
                                          right_flank_zeros], axis=0)) 
@@ -300,7 +300,8 @@ class GappyConv1D(Layer):
                           border_mode=self.border_mode,
                           dim_ordering='tf')
         with_gaps_output = K.squeeze(with_gaps_output, 2)  # remove dummy dim
-        #with_gaps_output is samples x length x num_gaps*num_filters
+        #with_gaps_output is samples x length x (num_gaps*num_filters)
+        #reshape to samples x length x num_gaps x num_filters
         reshape_with_gaps_output = K.reshape(output, (-1, self.output_shape[1], 
                                              self.num_gaps, self.nb_filter))
         if (self.bias):
@@ -308,11 +309,6 @@ class GappyConv1D(Layer):
                                          self.b, (1, 1, 1, self.nb_filter))
         reshape_with_gaps_output = self.activation(reshape_with_gaps_output)
         return reshape_with_gaps_output
-#
-#        weighted_gaps = (K.expand_dims(K.expand_dims(self.gap_weights,0),0)*
-#                         reshape_with_gaps_output)
-#        summed_weighted_gaps = K.sum(weighted_gaps, axis=2)
-#        return summed_weighted_gaps
 
     def get_config(self):
         config = {'nb_filter': self.nb_filter,
@@ -359,7 +355,9 @@ class WeightedSumOfGapsConv1D(Layer):
                                  initializer=functools.partial(
                                     "one",
                                     dim_ordering='th'),
-                                 name='{}_W'.format(self.name))
+                                 name='{}_W'.format(self.name),
+                                 W_regularizer=self.W_regularizer,
+                                 W_constraint=self.W_constraint)
 
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
