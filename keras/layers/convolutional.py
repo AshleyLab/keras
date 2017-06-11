@@ -186,6 +186,20 @@ class Convolution1D(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
+class Convolution1DFromWeightFile(Convolution1D):
+
+    def __init__(self, weight_file, **kwargs):
+        import numpy as np
+        weights = np.load(weight_file)
+        nb_filter = weights.shape[-1]
+        filter_length = weights.shape[0]
+        b = np.zeros((nb_filter,))
+        super(Convolution1DFromWeightFile, self).__init__(
+            nb_filter=nb_filter, filter_length=filter_length,
+            weights=[weights, b], **kwargs
+        )
+
+
 class GappyConv1D(Layer):
 
     def __init__(self, nb_filter, half_filter_length, min_gap, max_gap,
@@ -357,7 +371,7 @@ class WeightedSumForGappyConv1D(Layer):
         assert len(input_shape)==4
         self.num_gaps = input_shape[2]
         self.nb_filter = input_shape[3]
-        self.W_shape = (1,1,self.num_gaps, self.nb_filter)
+        self.W_shape = (self.num_gaps, self.nb_filter)
         self.W = self.add_weight(self.W_shape,
                                  initializer=functools.partial(
                                     initializations.get("one"),
@@ -375,7 +389,7 @@ class WeightedSumForGappyConv1D(Layer):
         return (input_shape[0], input_shape[1], input_shape[3])
 
     def call(self, x, mask=None):
-        return K.mean(self.W*x,axis=2)
+        return K.mean(K.expand_dims(K.expand_dims(self.W,0),0)*x,axis=2)
 
     def get_config(self):
         config = {'W_regularizer': self.W_regularizer.get_config() if self.W_regularizer else None,

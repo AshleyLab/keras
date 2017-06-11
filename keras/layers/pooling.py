@@ -79,6 +79,34 @@ class MaxPooling1D(_Pooling1D):
         return output
 
 
+class MaxPoolingFilter1D(_Pooling1D):
+    """Output dim is the same as input dim, but any neurons that
+     are NOT the max within some local window will get set to zero
+
+    # Arguments
+        pool_length: size of the region to which max pooling is applied
+    """
+
+    def __init__(self, pool_length, **kwargs):
+        super(MaxPoolingFilter1D, self).__init__(pool_length, stride=1,
+                                                 border_mode='same', **kwargs)
+
+    def _pooling_function(self, inputs, pool_size, strides,
+                          border_mode, dim_ordering):
+        maxpool_output = K.pool2d(inputs, pool_size, strides,
+                          border_mode, dim_ordering, pool_mode='max')
+        output = inputs*(K.cast(K.equal(maxpool_output, inputs),"float32"))
+        return output
+
+    def get_config(self):
+        config = {'pool_length': self.pool_length}
+        base_config = super(MaxPoolingFilter1D, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+    def get_output_shape_for(self, input_shape):
+        return input_shape
+
+
 class AveragePooling1D(_Pooling1D):
     """Average pooling for temporal data.
 
