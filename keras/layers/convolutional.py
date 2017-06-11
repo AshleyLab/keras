@@ -200,6 +200,83 @@ class Convolution1DFromWeightFile(Convolution1D):
         )
 
 
+class FullySepConv1D(Convolution1D):
+
+    def __init__(self, nb_filter, filter_length,
+                 activation=None, weights=None,
+                 border_mode='valid', subsample_length=1,
+                 activity_regularizer=None,
+                 bias=True, input_dim=None, input_length=None, **kwargs):
+
+        if border_mode not in {'valid', 'same', 'full'}:
+            raise ValueError('Invalid border mode for Convolution1D:', border_mode)
+        self.nb_filter = nb_filter
+        self.filter_length = filter_length
+        self.activation = activations.get(activation)
+        self.border_mode = border_mode
+        self.subsample_length = subsample_length
+
+        self.subsample = (subsample_length, 1)
+
+        self.activity_regularizer = regularizers.get(activity_regularizer)
+
+        self.bias = bias
+        self.input_spec = [InputSpec(ndim=3)]
+        self.initial_weights = weights
+        self.input_dim = input_dim
+        self.input_length = input_length
+        if self.input_dim:
+            kwargs['input_shape'] = (self.input_length, self.input_dim)
+        super(Convolution1D, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        import numpy as np
+
+        input_dim = input_shape[2]
+        self.W_pos_shape = (self.filter_length, self.nb_filter)
+        self.W_chan_shape = (input_dim, self.nb_filter)
+ 
+        self.init = (lambda shape, name: initializations.uniform(
+            shape, np.sqrt(
+            np.sqrt(2.0/(self.filter_length*(input_dim+self.nb_filter)))),
+            name))
+
+        self.W_pos = self.add_weight(self.W_pos_shape,
+                                     initializer=self.init,
+                                     name='{}_W_pos'.format(self.name))
+        self.W_chan = self.add_weight(self.W_chan_shape,
+                                     initializer=self.init,
+                                     name='{}_W_chan'.format(self.name))
+
+        self.W = (K.expand_dims(K.expand_dims(self.W_pos, 1),1)*
+                  K.expand_dims(K.expand_dims(self.W_chan,0),0))
+
+        if self.bias:
+            self.b = self.add_weight((self.nb_filter,),
+                                     initializer='zero',
+                                     name='{}_b'.format(self.name))
+        else:
+            self.b = None
+
+        if self.initial_weights is not None:
+            self.set_weights(self.initial_weights)
+            del self.initial_weights
+        self.built = True
+
+    def get_config(self):
+        config = {'nb_filter': self.nb_filter,
+                  'filter_length': self.filter_length,
+                  'activation': self.activation.__name__,
+                  'border_mode': self.border_mode,
+                  'subsample_length': self.subsample_length,
+                  'activity_regularizer': self.activity_regularizer.get_config() if self.activity_regularizer else None,
+                  'bias': self.bias,
+                  'input_dim': self.input_dim,
+                  'input_length': self.input_length}
+        base_config = super(Convolution1D, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
 class GappyConv1D(Layer):
 
     def __init__(self, nb_filter, half_filter_length, min_gap, max_gap,
