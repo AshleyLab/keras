@@ -37,7 +37,7 @@ class CurvatureConstraint(Constraint):
         kmask1 = K.variable(value=mask1)
         mat1 = kmask1 * K.repeat_elements(K.expand_dims(desired_diff2, 1), length-1, 1)
         desired_diff1 = K.squeeze(K.squeeze(
-                K.dot(mat1, K.ones((1, num_output, length-1)))[:,:,:1,:1], axis=2), axis=2)
+                K.dot(mat1, K.ones((1, length-2, num_output)))[:,:,:1,:1], axis=2), axis=2)
         desired_diff1 += K.repeat_elements(K.expand_dims(
                 mean_diff1 - K.mean(desired_diff1, axis=1), -1), length-1, axis=1)
 
