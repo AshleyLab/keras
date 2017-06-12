@@ -12,6 +12,50 @@ class Constraint(object):
         return {'name': self.__class__.__name__}
 
 
+class CurvatureConstraint(Constraint):
+    """Constrains the second differences of weights in W_pos.
+
+    # Arguments
+        m: the maximum curvature for the incoming weights.
+    """
+
+    def __init__(self, m=1.0):
+        self.m = m
+
+    def __call__(self, p):
+        import numpy as np
+        mean_p = K.eval(K.mean(p, axis=1))
+        (num_output, length) = K.int_shape(p)
+        diff1 = p[:,1:] - p[:,:-1]
+        mean_diff1 = K.eval(K.mean(diff1, axis=1))
+        diff2 = diff1[:,1:] - diff1[:,:-1]
+        desired_diff2 = K.clip(diff2, -self.m, self.m)
+
+        il1 = np.triu_indices(length-2)
+        mat1 = K.eval(K.repeat_elements(
+                K.expand_dims(desired_diff2, 1), length-1, 1))
+        mat1[:, il1[0], il1[1]] = 0.0
+        desired_diff1 = np.squeeze(np.dot(
+                mat1,np.ones((1, num_output, length-1)))[:,:,:1,:1], axis=(2,3))
+        desired_diff1 += np.repeat(np.expand_dims(
+                mean_diff1 - np.mean(desired_diff1, axis=1), -1), length-1, axis=1)
+        
+        il2 = np.triu_indices(length-1)
+        mat2 = np.repeat(np.expand_dims(desired_diff1, 1), length, 1)
+        mat2[:, il2[0], il2[1]] = 0.0
+        desired_p = np.squeeze(np.dot(
+                mat2, np.ones((1, length-1, num_output)))[:,:,:1,:1], axis=(2,3))
+        desired_p += np.repeat(np.expand_dims(
+                mean_p - np.mean(desired_p, axis=1), -1), length, axis=1)
+        
+        final_p = K.variable(value=desired_p)
+        return final_p
+
+    def get_config(self):
+        return {'name': self.__class__.__name__,
+                'm': self.m}  
+    
+  
 class MaxNorm(Constraint):
     """MaxNorm weight constraint.
 
