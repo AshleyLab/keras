@@ -41,7 +41,7 @@ class SmoothnessRegularizer(Regularizer):
 class SepFCSmoothnessRegularizer(Regularizer):
 
     def __init__(self, smoothness, l1=True, second_diff=False):
-        self.smoothness = smoothness
+        self.smoothness = float(smoothness)
         self.l1 = l1
         self.second_diff = second_diff
 
