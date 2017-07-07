@@ -450,6 +450,8 @@ class SeparableFC(Layer):
         smoothness_second_diff: if smoothness penalty is to be applied to the
             difference of the difference, set to True
             otherwise, penalty is applied to the first difference
+        curvature_constraint: constraint to be enforced on the second differences
+            of the positional weights matrix
             
     # Input shape
         3D tensor with shape: `(samples, steps, features)`.
