@@ -828,6 +828,8 @@ class SeparableFC(Layer):
         smoothness_second_diff: if smoothness penalty is to be applied to the
             difference of the difference, set to True
             otherwise, penalty is applied to the first difference
+        curvature_constraint: constraint to be enforced on the second differences
+            of the positional weights matrix
             
     # Input shape
         3D tensor with shape: `(samples, steps, features)`.
@@ -836,15 +838,17 @@ class SeparableFC(Layer):
         2D tensor with shape: `(samples, output_features)`.
     '''
     def __init__(self, output_dim, symmetric,
-                       smoothness_penalty=None,
+                       smoothness_penalty = None,
                        smoothness_l1 = False,
-                       smoothness_second_diff = True,  **kwargs):
+                       smoothness_second_diff = True,
+                       curvature_constraint = None, **kwargs):
         super(SeparableFC, self).__init__(**kwargs)
         self.output_dim = output_dim
         self.symmetric = symmetric
         self.smoothness_penalty = smoothness_penalty
         self.smoothness_l1 = smoothness_l1
         self.smoothness_second_diff = smoothness_second_diff
+        self.curvature_constraint = curvature_constraint
 
     def build(self, input_shape):
         import numpy as np
@@ -862,6 +866,9 @@ class SeparableFC(Layer):
         self.W_pos = self.add_weight(
             shape = (self.output_dim, self.length),
             name='{}_W_pos'.format(self.name), initializer=self.init,
+            constraint=(None if self.curvature_constraint is None else
+                constraints.CurvatureConstraint(
+                    self.curvature_constraint)),
             regularizer=(None if self.smoothness_penalty is None else
                 regularizers.SepFCSmoothnessRegularizer(
                     self.smoothness_penalty,
@@ -897,7 +904,8 @@ class SeparableFC(Layer):
                   'symmetric': self.symmetric,
                   'smoothness_penalty': self.smoothness_penalty,
                   'smoothness_l1': self.smoothness_l1,
-                  'smoothness_second_diff': self.smoothness_second_diff}
+                  'smoothness_second_diff': self.smoothness_second_diff,
+                  'curvature_constraint': self.curvature_constraint}
         base_config = super(SeparableFC, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
