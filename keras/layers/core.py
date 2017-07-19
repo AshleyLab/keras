@@ -85,15 +85,17 @@ class Dropout(Layer):
             you want the dropout mask to be the same for all timesteps,
             you can use `noise_shape=(batch_size, 1, features)`.
         seed: A Python integer to use as random seed.
+        test_time: If dropout is to work at test time, set to True. 
 
     # References
         - [Dropout: A Simple Way to Prevent Neural Networks from Overfitting](http://www.cs.toronto.edu/~rsalakhu/papers/srivastava14a.pdf)
     """
 
-    def __init__(self, p, noise_shape=None, seed=None, **kwargs):
+    def __init__(self, p, noise_shape=None, seed=None, test_time=False, **kwargs):
         self.p = p
         self.noise_shape = noise_shape
         self.seed = seed
+        self.test_time = test_time
         if 0. < self.p < 1.:
             self.uses_learning_phase = True
         self.supports_masking = True
@@ -106,13 +108,16 @@ class Dropout(Layer):
         if 0. < self.p < 1.:
             noise_shape = self._get_noise_shape(x)
 
-            def dropped_inputs():
+            if self.test_time:
                 return K.dropout(x, self.p, noise_shape, seed=self.seed)
-            x = K.in_train_phase(dropped_inputs, lambda: x)
+            else:
+                def dropped_inputs():
+                    return K.dropout(x, self.p, noise_shape, seed=self.seed)
+            return K.in_train_phase(dropped_inputs, lambda: x)
         return x
 
     def get_config(self):
-        config = {'p': self.p}
+        config = {'p': self.p, 'test_time': self.test_time}
         base_config = super(Dropout, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
