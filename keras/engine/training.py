@@ -727,7 +727,7 @@ class Model(Container):
 
         extra_train_output_names = []
 
-        for x in extra_train_outputs:
+        for x in self.extra_train_outputs:
             layer = x._keras_history[0]
             if layer not in self.layers:
                 raise ValueError('Extra train output not part of the model!')
